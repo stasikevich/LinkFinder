@@ -14,3 +14,4 @@ linkfinder.json
 *.topology.json
 *.topology.html
 *topology*.png
+*.stackdump
