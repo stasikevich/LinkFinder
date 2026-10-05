@@ -348,6 +348,16 @@ A running `LinkFinder-GUI.exe` also has to be closed before PyInstaller can repl
 | `linkfinder/engine.py` | path selection, fallbacks, parallel batch |
 | `linkfinder/cli.py`, `gui.py` | the two front ends over the same engine |
 
+## Using it from Claude Code
+
+A ready-made skill ships with the repository at `.claude/skills/linkfinder/`. Clone this
+repo and Claude Code picks it up automatically, so `/linkfinder <host>` or
+`/linkfinder --topology <seed>` work straight away. The skill is site-neutral - it knows
+how to drive the tool and nothing about anybody's network.
+
+To make it available everywhere rather than only inside a checkout, copy that folder into
+`~/.claude/skills/`.
+
 ## Licence
 
 Copyright (c) 2026 Stas Mitin, released under the MIT licence.
