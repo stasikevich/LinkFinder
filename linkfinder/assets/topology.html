@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LinkFinder topology - __SEED__</title>
+<style>
+ :root { color-scheme: light; }
+ * { box-sizing: border-box; }
+ body { margin:0; font:13px/1.45 "Segoe UI",system-ui,sans-serif; color:#1a202c; }
+ header { padding:10px 14px; background:#1a202c; color:#fff; display:flex;
+          align-items:center; gap:16px; flex-wrap:wrap; }
+ header h1 { font-size:15px; margin:0; font-weight:600; }
+ header .meta { font-size:12px; opacity:.85; }
+ #bar { padding:8px 14px; background:#edf2f7; border-bottom:1px solid #cbd5e0;
+        display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+ #bar input, #bar select, #bar button { font:12px inherit; padding:4px 8px;
+        border:1px solid #cbd5e0; border-radius:4px; background:#fff; }
+ #bar button { cursor:pointer; }
+ #wrap { display:flex; height:calc(100vh - 98px); }
+ #cy { flex:1; background:#fff; }
+ #side { width:340px; border-left:1px solid #cbd5e0; padding:12px 14px; overflow:auto;
+         background:#f7fafc; }
+ #side h2 { font-size:13px; margin:0 0 8px; }
+ #side table { width:100%; border-collapse:collapse; font-size:12px; }
+ #side td { padding:3px 4px; vertical-align:top; border-bottom:1px solid #e2e8f0;
+            word-break:break-word; }
+ #side td.k { color:#4a5568; width:38%; }
+ .legend { display:flex; gap:12px; flex-wrap:wrap; font-size:11px; }
+ .legend span { display:inline-flex; align-items:center; gap:5px; }
+ .dot { width:11px; height:11px; border-radius:3px; display:inline-block; }
+ .line { width:18px; height:0; display:inline-block; }
+ .muted { color:#718096; }
+</style>
+</head>
+<body>
+<header>
+  <h1>LinkFinder topology</h1>
+  <span class="meta">__BYLINE__</span>
+  <span class="meta">seed __SEED__ &middot; __SUMMARY__ &middot; generated __GENERATED__</span>
+  <span class="meta" id="stopnote"></span>
+</header>
+<div id="bar">
+  <label>layout
+    <select id="layout">
+      <option value="cose">force</option>
+      <option value="breadthfirst">tree from seed</option>
+      <option value="concentric">concentric</option>
+      <option value="grid">grid</option>
+    </select>
+  </label>
+  <input id="filter" placeholder="filter by name, IP, chassis..." size="24">
+  <label><input type="checkbox" id="showUnscanned" checked> unscanned</label>
+  <label><input type="checkbox" id="showLabels" checked> interface labels</label>
+  <button id="fit">fit</button>
+  <span class="legend" id="legend"></span>
+</div>
+<div id="wrap">
+  <div id="cy"></div>
+  <div id="side">
+    <h2>Click a node or a link</h2>
+    <p class="muted">Drag to move, scroll to zoom, drag the background to pan.</p>
+  </div>
+</div>
+<script>__CYTOSCAPE__</script>
+<script>
+const TOPOLOGY = __DATA__;
+const ELEMENTS = __ELEMENTS__;
+const KIND_STYLE = __KIND_STYLE__;
+const EDGE_STYLE = __EDGE_STYLE__;
+
+if (TOPOLOGY.stopped_because) {
+  document.getElementById('stopnote').textContent =
+    'incomplete: ' + TOPOLOGY.stopped_because;
+}
+const legend = document.getElementById('legend');
+Object.keys(KIND_STYLE).forEach(function (k) {
+  const s = document.createElement('span');
+  s.innerHTML = '<i class="dot" style="background:' + KIND_STYLE[k][0] + '"></i>' + k;
+  legend.appendChild(s);
+});
+Object.keys(EDGE_STYLE).forEach(function (k) {
+  const s = document.createElement('span');
+  s.innerHTML = '<i class="line" style="border-top:3px ' + EDGE_STYLE[k][1] + ' '
+    + EDGE_STYLE[k][0] + '"></i>' + k;
+  legend.appendChild(s);
+});
+
+const cy = cytoscape({
+  container: document.getElementById('cy'),
+  elements: ELEMENTS,
+  wheelSensitivity: 0.2,
+  maxZoom: 1.5,
+  minZoom: 0.15,
+  style: [
+    { selector: 'node', style: {
+        'background-color': 'data(colour)', 'shape': 'data(shape)',
+        'border-color': 'data(border)', 'border-width': 'data(borderWidth)',
+        'label': 'data(label)', 'font-size': 10, 'color': '#1a202c',
+        'text-valign': 'bottom', 'text-margin-y': 4, 'width': 34, 'height': 34,
+        'text-background-color': '#ffffff', 'text-background-opacity': 0.75,
+        'text-background-padding': 2 } },
+    { selector: 'node[state = "unreachable"]', style: { 'background-opacity': 0.45 } },
+    { selector: 'node[state = "unscanned"]', style: { 'background-opacity': 0.35 } },
+    { selector: 'node[state = "out-of-scope"]', style: {
+        'background-opacity': 0.3, 'border-style': 'dashed' } },
+    { selector: 'node[state = "limit-reached"]', style: {
+        'background-opacity': 0.3, 'border-style': 'dashed' } },
+    { selector: 'edge', style: {
+        'width': 'data(width)', 'line-color': 'data(colour)',
+        'line-style': 'data(lineStyle)', 'curve-style': 'bezier',
+        'source-label': 'data(a_iface)', 'target-label': 'data(b_iface)',
+        'source-text-offset': 30, 'target-text-offset': 30,
+        'source-text-margin-y': -9, 'target-text-margin-y': -9,
+        'font-size': 9, 'color': '#2d3748',
+        'text-background-color': '#ffffff', 'text-background-opacity': 0.85,
+        'text-background-padding': 2, 'edge-text-rotation': 'autorotate' } },
+    { selector: '.hidden', style: { 'display': 'none' } },
+    { selector: ':selected', style: { 'border-color': '#e53e3e', 'border-width': 4 } }
+  ]
+});
+
+function applyLayout(name) {
+  const opts = { name: name, animate: false, padding: 30 };
+  if (name === 'cose') { opts.nodeRepulsion = 9000; opts.idealEdgeLength = 120; }
+  if (name === 'concentric') { opts.minNodeSpacing = 40; }
+  if (name === 'breadthfirst') {
+    opts.directed = false;
+    const seeds = cy.nodes().filter(function (n) {
+      return (n.data('mgmt_ips') || []).indexOf(TOPOLOGY.seed) >= 0;
+    });
+    if (seeds.length) { opts.roots = seeds; }
+  }
+  const run = cy.layout(opts);
+  run.one('layoutstop', function () { cy.resize(); cy.fit(cy.elements(), 40); });
+  run.run();
+}
+
+window.addEventListener('resize', function () { cy.resize(); cy.fit(cy.elements(), 40); });
+applyLayout('cose');
+window.setTimeout(function () { cy.resize(); cy.fit(cy.elements(), 40); }, 400);
+
+function syncEdges() {
+  cy.edges().forEach(function (ed) {
+    ed.toggleClass('hidden', ed.source().hasClass('hidden') || ed.target().hasClass('hidden'));
+  });
+}
+document.getElementById('layout').onchange = function (e) { applyLayout(e.target.value); };
+document.getElementById('fit').onclick = function () { cy.fit(cy.elements(), 30); };
+document.getElementById('showLabels').onchange = function (e) {
+  const on = e.target.checked;
+  cy.style().selector('edge')
+    .style('source-label', on ? 'data(a_iface)' : '')
+    .style('target-label', on ? 'data(b_iface)' : '').update();
+};
+document.getElementById('showUnscanned').onchange = function (e) {
+  cy.nodes('[state = "unscanned"]').toggleClass('hidden', !e.target.checked);
+  syncEdges();
+};
+document.getElementById('filter').oninput = function (e) {
+  const q = e.target.value.trim().toLowerCase();
+  cy.nodes().forEach(function (n) {
+    const hay = JSON.stringify(n.data()).toLowerCase();
+    n.toggleClass('hidden', q.length > 0 && hay.indexOf(q) < 0);
+  });
+  syncEdges();
+};
+
+const HIDE = ['colour', 'shape', 'border', 'borderWidth', 'label', 'lineStyle',
+              'width', 'source', 'target'];
+const side = document.getElementById('side');
+function rows(obj, title) {
+  let out = '<h2>' + title + '</h2><table>';
+  Object.keys(obj).forEach(function (k) {
+    if (HIDE.indexOf(k) >= 0) { return; }
+    let v = obj[k];
+    if (v === null || v === undefined || v === '') { return; }
+    if (Array.isArray(v)) { if (!v.length) { return; } v = v.join(', '); }
+    if (typeof v === 'object') { v = JSON.stringify(v); }
+    out += '<tr><td class="k">' + k + '</td><td>'
+      + String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</td></tr>';
+  });
+  return out + '</table>';
+}
+function emptyPanel() {
+  side.innerHTML = '<h2>Click a node or a link</h2><p class="muted">'
+    + TOPOLOGY.nodes.length + ' devices, ' + TOPOLOGY.edges.length + ' links.</p>';
+}
+cy.on('tap', 'node', function (e) { side.innerHTML = rows(e.target.data(), 'Device'); });
+cy.on('tap', 'edge', function (e) { side.innerHTML = rows(e.target.data(), 'Link'); });
+cy.on('tap', function (e) { if (e.target === cy) { emptyPanel(); } });
+</script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+build/
+dist/
+*.spec
+
+# local state and secrets - never commit
+.linkfinder.json
+linkfinder.json
+.linkfinder-switches.json
+*.csv
+*.pcap
+*.pcapng
+*.topology.json
+*.topology.html
+*topology*.png

@@ -1,0 +1,13 @@
+LinkFinder
+==========
+
+Idea, design and architecture: Stas Mitin.
+Written by Stas Mitin.
+
+Copyright (c) 2026 Stas Mitin. Released under the MIT licence - see LICENSE.
+You may use, change and redistribute this freely; the copyright notice has to
+travel with it.
+
+Third-party code shipped with this tool:
+  cytoscape.min.js 3.30.2 - The Cytoscape Consortium, MIT licence.
+  See linkfinder/assets/cytoscape-LICENSE.txt for the full text.
