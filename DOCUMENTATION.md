@@ -61,31 +61,45 @@ SNMP needs no package - the SNMPv2c client is written against the standard libra
 
 ## 3. The window, field by field
 
-Five tabs over one top bar and one status bar. Everything site-specific is typed in; the
-window never stores anything by itself.
+Two places to be, over one top bar and one status bar. Everything site-specific is
+typed in; the window never stores anything by itself.
 
 ```
- Target [ 198.51.100.12 ]  User [ admin ]  Password [ **** ]  [ Scan ] [ Advanced ]   Theme [system]
- ---------------------------------------------------------------------------------------------
-  Overview | Neighbors | Port Health | Topology | Raw
- ---------------------------------------------------------------------------------------------
-  DEVICE                      CONNECTION
-  Hostname  server01          Switch     sw-rack-07
-  Address   198.51.100.12     Port       Eth1/23
-  Type      bmc:dell          Switch IP  198.51.100.1
-  Vendor    Dell iDRAC 9      VLAN       84
-                              Link       UP
-                              Via        LLDP / redfish
- ---------------------------------------------------------------------------------------------
+ Target [10.0.0.5, 10.0.0.6  or  server1]  Login [root]  Password [****] (SSH, or the BMC)
+                                                    [ Scan ]  [ Advanced ]      Theme [system]
+ ------------------------------------------------------------------------------------------
+  [Device]  Map   Log                                            [ Compare... ]  [ Export... ]
+ ------------------------------------------------------------------------------------------
+  node-a  -  linux  -  Dell PowerEdge R650
+  Scanned 3 device(s) at 19:12:53: 198.51.100.10, 198.51.100.11, 198.51.100.13
+  Device [ 198.51.100.10 (node-a) v ]
+  [ ] Also read switch port counters    sample [3] s   expect [    ] Mbps
+ ------------------------------------------------------------------------------------------
+  PORT          STATUS     CONNECTED TO                            ISSUES
+  eno1 [mgmt]   UP  1G     sw-access-1  1/1/13                     -
+  enp23s0f2     UP  10G    sw-core-1  10GigabitEthernet 1/13       -
+  enp23s0f0     UP  10G    node-b enp101s0f3  (direct cable, PTP)  -
+  enp23s0f1     UP  10G    unknown                                 no LLDP
+ ------------------------------------------------------------------------------------------
+  enp23s0f0 on 198.51.100.10   (02:00:00:00:00:08, 10000Mb/s, MTU 9000)
+  Far end: node-b enp101s0f3
+  Evidence: most likely a direct cable - each end hears only the other
+  ...
+ ------------------------------------------------------------------------------------------
  * Reading SNMP...                                    device 4, queued 9        00:42
 ```
+
+It used to be five tabs, and that was the wrong shape: a single port's neighbour was
+on one tab, its health on another and its timing on a third, so answering one
+question meant visiting three places and holding the port name in your head. A
+device is one page now. The site is the other.
 
 ### Top bar
 
 | Control | Meaning |
 |---|---|
-| **Target** | Address to scan, or the seed for a topology. Enter runs the scan. |
-| **User / Password** | SSH credentials; the password is also used for `sudo`. With a password set, agent keys are not tried - network devices allow very few auth attempts. |
+| **Target** | Address to scan, or the seed for a map. Several, comma or space separated. The grey example is a hint, not a value - it is never scanned. Enter runs the scan. |
+| **Login / Password** | SSH credentials, reused for a BMC unless the Advanced panel overrides them; the password is also used for `sudo`. With a password set, agent keys are not tried - network devices allow very few auth attempts. |
 | **Scan** | Runs the port lookup for the target. |
 | **Advanced** | Folds out everything you set once: SSH key, BMC credentials, switches and SNMP community, interface filter, MAC, mode, capture seconds, and the three behaviour ticks. |
 | **Theme** | `system`, `light` or `dark`. `system` follows the Windows setting. |
@@ -107,32 +121,56 @@ window never stores anything by itself.
 | **remember switches it finds** | Writes to `~/.linkfinder-switches.json`. Off by default. |
 | **Known switches / Forget** | Show or wipe that list. |
 
-### Tabs
+### Device
 
-**Overview** - the answer in three cards: the device, the connection, the neighbour.
-Colour carries meaning and nothing else: green for up and healthy, orange for degraded,
-red for down or failed, grey for unknown or disabled.
+One table, one row per cable, four columns and no more. **Port**, **Status**,
+**Connected to**, **Issues**.
 
-**Neighbors** - one row per link found on the target: local port, switch, switch address,
-switch port, VLAN, **PTP**, **Peer**, method, confidence. Green means LLDP answered,
-amber means it did not but PTP named the far end anyway, grey means nothing was found.
-Selecting a row opens a panel below with that port's MAC and speed, its full PTP state -
-role, domain, clock identity, grandmaster, offset - and, in plain words, how strongly
-the far end is actually established.
+**Connected to** answers the question the tool exists for, whatever the route: a
+switch and its port when LLDP or the forwarding table resolved it, the far machine
+and how sure we are when only PTP could name it, or `unknown` when nothing could.
+A port with no answer still gets a row - leaving it out would be the one thing worse
+than saying nothing.
 
-**Port Health** - off until you tick **Read SNMP port status / health**; the interval and
-expected-speed boxes stay disabled until then, and nothing extra is read. Once on, each
-scan also reads the switch port table and lists every physical port with its link state,
-speed, usage and health. Selecting a row shows that port's counters and the reason behind
-its verdict.
+**Issues** carries only what is not right: a failed comparison, a degraded switch
+port, a live port with no LLDP. Everything that is fine shows `-`. This is deliberate
+and it is what keeps the table at four columns instead of fifteen as checks are
+added - MTU, VLAN, speed, LACP and the rest are not columns, they are reasons for
+a row to appear in Issues.
 
-**Topology** - its own controls, kept away from single-device lookup: max depth, max
-devices, scope, an Auto Discovery tick, and **Generate / View / Merge / Stop**. The result
-table lists every device found with its depth and state.
+Colour carries the same meaning everywhere in the window: green resolved and clean,
+amber resolved with something to look at, red a fault, grey nothing found.
 
-**Raw** - the full log, plus **Export CSV**, **Export JSON** and **Error details**. The
-main window never shows a traceback; the short reason goes in the status bar and the
-technical text waits behind that button.
+Select a row and the panel underneath explains that one cable - the local MAC, speed
+and MTU; the switch and port with how it was learned; the far end with the evidence
+behind it in words; the grandmaster and timing state; every comparison with both
+sides' values; and, when port counters were read, the counters themselves with how
+much each moved during the sample.
+
+**Also read switch port counters** is the opt-in. Until it is ticked the interval and
+expected-speed boxes are dead and not one extra SNMP request is made. Ticked, the
+switch port behind each row is read as well, and what it says folds into the same
+table rather than opening a page of its own.
+
+With more than one target a **Device** picker appears; with one it stays hidden. The
+line above it says how many devices were scanned and when, so a page left over from
+an earlier run cannot be mistaken for the current one.
+
+### Map
+
+Its own controls, kept away from single-device lookup: **max depth**, **max devices**,
+**stay inside (CIDR)**, a **keep going without asking** tick, and
+**Generate / Open / Merge... / Stop**. The table lists every device found with its
+depth, state, management address and - when it was not scanned - why.
+
+**Compare...** in the top right takes two saved topology files and reports what moved
+between them, into the Log.
+
+### Log
+
+The full transcript, plus **Save CSV**, **Save JSON**, **Error details** and the
+remembered-switch list. The main window never shows a traceback: the short reason goes
+in the status bar and the technical text waits behind that button.
 
 ### Status bar
 

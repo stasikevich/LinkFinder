@@ -355,8 +355,8 @@ The icons are original line art in `linkfinder/assets/icons/`, one SVG per kind,
 data URI. No vendor stencil set is redistributed. Redraw or restyle them with
 `python tools/make_icons.py`.
 
-In the window: the Topology row sets the limits and the Auto Discovery tick, then
-**Generate Topology** and **View Topology**.
+In the window: switch to **Map**, set the limits, then **Generate**. **Open**
+shows the last one, **Compare...** reports what moved since a saved scan.
 
 ## It can remember switches - if you ask it to
 

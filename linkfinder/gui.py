@@ -185,6 +185,39 @@ class Theme:
         return "%s.Surface.TLabel" % key if on_surface else "%s.TLabel" % key
 
 
+def add_placeholder(entry: ttk.Entry, variable: tk.StringVar, text: str,
+                    theme: "Theme") -> None:
+    """Grey hint text in an empty field, gone the moment it is used.
+
+    An empty box labelled Target does not say whether it wants an address, a
+    name, or several of them. The example answers that before the first
+    mistake rather than after it.
+    """
+    showing = {"on": False}
+
+    def show() -> None:
+        if not variable.get():
+            showing["on"] = True
+            variable.set(text)
+            entry.configure(foreground=theme.colours["muted"])
+
+    def hide(_event=None) -> None:
+        if showing["on"] and variable.get() == text:
+            variable.set("")
+        showing["on"] = False
+        entry.configure(foreground=theme.colours["text"])
+
+    def restore(_event=None) -> None:
+        if not variable.get():
+            show()
+
+    entry.bind("<FocusIn>", hide)
+    entry.bind("<FocusOut>", restore)
+    entry.placeholder = text
+    entry.is_placeholder = lambda: showing["on"]
+    show()
+
+
 class Card(ttk.Frame):
     """A titled block of key/value rows - the readable alternative to a textbox."""
 
@@ -286,7 +319,7 @@ class App:
 
         self._build_topbar()
         self._build_advanced()
-        self._build_tabs()
+        self._build_modes()
         ttk.Separator(root).pack(side=tk.BOTTOM, fill=tk.X)
         self.status = StatusBar(root, self.theme)
         self.status.pack(side=tk.BOTTOM, fill=tk.X)
@@ -300,13 +333,19 @@ class App:
         entry = ttk.Entry(bar, textvariable=self.var["targets"], width=32)
         entry.pack(side=tk.LEFT, padx=(8, 16))
         entry.bind("<Return>", lambda _e: self.start())
-        ttk.Label(bar, text="User", style="MutedBg.TLabel").pack(side=tk.LEFT)
+        self.target_entry = entry
+        add_placeholder(entry, self.var["targets"],
+                        "10.0.0.5, 10.0.0.6  or  server1", self.theme)
+        ttk.Label(bar, text="Login", style="MutedBg.TLabel").pack(side=tk.LEFT)
         self.var["user"] = tk.StringVar(value=str(self.cfg.get("user", "")))
         ttk.Entry(bar, textvariable=self.var["user"], width=14).pack(side=tk.LEFT, padx=(8, 12))
         ttk.Label(bar, text="Password", style="MutedBg.TLabel").pack(side=tk.LEFT)
         self.var["password"] = tk.StringVar(value=str(self.cfg.get("password", "")))
-        ttk.Entry(bar, textvariable=self.var["password"], width=16,
-                  show="\u2022").pack(side=tk.LEFT, padx=(8, 16))
+        password = ttk.Entry(bar, textvariable=self.var["password"], width=16,
+                             show="\u2022")
+        password.pack(side=tk.LEFT, padx=(8, 6))
+        ttk.Label(bar, text="(SSH, or the BMC)", style="MutedBg.TLabel").pack(
+            side=tk.LEFT, padx=(0, 16))
         self.btn_run = ttk.Button(bar, text="Scan", style="Accent.TButton", command=self.start)
         self.btn_run.pack(side=tk.LEFT)
         ttk.Button(bar, text="Advanced", command=self.toggle_advanced).pack(
@@ -365,145 +404,156 @@ class App:
         if self.advanced_open:
             self.advanced.pack_forget()
         else:
-            self.advanced.pack(fill=tk.X, padx=14, pady=(0, 6), before=self.tabs)
+            self.advanced.pack(fill=tk.X, padx=14, pady=(0, 6), before=self.pages)
         self.advanced_open = not self.advanced_open
 
-    def _build_tabs(self) -> None:
-        self.tabs = ttk.Notebook(self.root)
-        self.tabs.pack(fill=tk.BOTH, expand=True, padx=14, pady=(4, 8))
-        self._build_overview()
-        self._build_neighbors()
-        self._build_port_health()
-        self._build_topology()
-        self._build_raw()
+    def _build_modes(self) -> None:
+        """Two places to be, not eight.
 
-    def _build_overview(self) -> None:
-        page = ttk.Frame(self.tabs, padding=14)
-        self.tabs.add(page, text="Overview")
-        picker = ttk.Frame(page)
-        picker.pack(fill=tk.X, pady=(0, 10))
-        self.device_label = ttk.Label(picker, text="Device",
-                                      style="MutedBg.TLabel")
-        self.device_pick = ttk.Combobox(picker, state="readonly", width=34,
-                                        values=[])
-        self.device_pick.bind("<<ComboboxSelected>>", self._show_device)
-        top = ttk.Frame(page)
-        top.pack(fill=tk.X)
-        self.card_device = Card(top, "Device", self.theme)
-        self.card_device.pack(side=tk.LEFT, anchor=tk.N, padx=(0, 14))
-        self.card_conn = Card(top, "Connection", self.theme)
-        self.card_conn.pack(side=tk.LEFT, anchor=tk.N)
-        self.card_neighbor = Card(page, "Neighbour", self.theme, width=56)
-        self.card_neighbor.pack(fill=tk.X, pady=(14, 0))
-        self.overview_note = ttk.Label(page, text="Enter a target and press Scan.",
-                                       style="MutedBg.TLabel")
-        self.overview_note.pack(anchor=tk.W, pady=(16, 0))
+        Tabs were splitting one question across several of them: a port's
+        neighbour on one, its health on another, its timing on a third. A
+        device is one page now, the site is the other, and everything known
+        about a port is on the row and in the panel under it.
+        """
+        bar = ttk.Frame(self.root, padding=(14, 0, 14, 6))
+        bar.pack(fill=tk.X)
+        self.mode = tk.StringVar(value="device")
+        for value, label in (("device", "Device"), ("map", "Map"), ("log", "Log")):
+            ttk.Radiobutton(bar, text=label, value=value, variable=self.mode,
+                            style="Toolbutton", width=9,
+                            command=self._show_mode).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(bar, text="Export...", command=self.export_csv).pack(side=tk.RIGHT)
+        ttk.Button(bar, text="Compare...", command=self.compare_topologies).pack(
+            side=tk.RIGHT, padx=6)
+
+        self.pages = ttk.Frame(self.root)
+        self.pages.pack(fill=tk.BOTH, expand=True, padx=14, pady=(2, 8))
+        self.page = {}
+        self._build_device_page()
+        self._build_map_page()
+        self._build_log_page()
+        self._show_mode()
+
+    def _show_mode(self) -> None:
+        for name, frame in self.page.items():
+            frame.pack_forget()
+        self.page[self.mode.get()].pack(fill=tk.BOTH, expand=True)
+
+    def _build_device_page(self) -> None:
+        page = ttk.Frame(self.pages)
+        self.page["device"] = page
+
+        self.device_line = ttk.Label(page, text="Enter an address and press Scan.",
+                                     style="MutedBg.TLabel")
+        self.device_line.pack(anchor=tk.W, pady=(0, 2))
         self.scan_note = ttk.Label(page, text="", style="MutedBg.TLabel")
-        self.scan_note.pack(anchor=tk.W, pady=(6, 0))
-        for key in ("Hostname", "Address", "Type", "Vendor"):
-            self.card_device.set(key, "")
-        for key in ("Switch", "Port", "Switch IP", "VLAN", "Link", "Via"):
-            self.card_conn.set(key, "")
-        for key in ("LLDP", "Confidence", "Note"):
-            self.card_neighbor.set(key, "")
+        self.scan_note.pack(anchor=tk.W, pady=(0, 8))
 
-    def _build_neighbors(self) -> None:
-        page = ttk.Frame(self.tabs, padding=(14, 12))
-        self.tabs.add(page, text="Neighbors")
-        self.tree = self._table(page, [
-            ("host", "Device", 125),
-            ("iface", "Local port", 115), ("switch", "Switch", 125),
-            ("switchip", "Switch IP", 110), ("port", "Switch port", 150),
-            ("vlan", "VLAN", 55), ("ptp", "PTP", 130), ("peer", "Peer", 180),
-            ("via", "Via", 150), ("conf", "Confidence", 85)])
-        self.tree.bind("<<TreeviewSelect>>", self._show_neighbor_detail)
-        self.neighbor_detail = scrolledtext.ScrolledText(page, height=11, relief="flat",
-                                                         wrap=tk.WORD)
-        self.neighbor_detail.pack(fill=tk.X, pady=(10, 0))
-        self.neighbor_rows = {}
+        picker = ttk.Frame(page)
+        picker.pack(fill=tk.X, pady=(0, 6))
+        self.device_label = ttk.Label(picker, text="Device", style="MutedBg.TLabel")
+        self.device_pick = ttk.Combobox(picker, state="readonly", width=38, values=[])
+        self.device_pick.bind("<<ComboboxSelected>>", self._show_device)
 
-    def _build_port_health(self) -> None:
-        page = ttk.Frame(self.tabs, padding=(14, 12))
-        self.tabs.add(page, text="Port Health")
         controls = ttk.Frame(page)
-        controls.pack(fill=tk.X, pady=(0, 10))
+        controls.pack(fill=tk.X, pady=(0, 8))
         self.port_health = tk.BooleanVar(value=False)
-        ttk.Checkbutton(controls, text="Read SNMP port status / health",
+        ttk.Checkbutton(controls, text="Also read switch port counters",
                         variable=self.port_health,
                         command=self._sync_health_controls).pack(side=tk.LEFT)
-        ttk.Label(controls, text="interval", style="MutedBg.TLabel").pack(
-            side=tk.LEFT, padx=(22, 6))
+        ttk.Label(controls, text="sample", style="MutedBg.TLabel").pack(
+            side=tk.LEFT, padx=(18, 6))
         self.var["health_interval"] = tk.StringVar(value="3")
-        spin = ttk.Spinbox(controls, from_=1, to=60, width=5,
+        spin = ttk.Spinbox(controls, from_=1, to=60, width=4,
                            textvariable=self.var["health_interval"])
         spin.pack(side=tk.LEFT)
-        ttk.Label(controls, text="s", style="MutedBg.TLabel").pack(side=tk.LEFT, padx=(4, 20))
-        ttk.Label(controls, text="expect speed", style="MutedBg.TLabel").pack(
+        ttk.Label(controls, text="s", style="MutedBg.TLabel").pack(side=tk.LEFT, padx=(4, 18))
+        ttk.Label(controls, text="expect", style="MutedBg.TLabel").pack(
             side=tk.LEFT, padx=(0, 6))
         self.var["expect_speed"] = tk.StringVar(value="")
-        speed = ttk.Entry(controls, textvariable=self.var["expect_speed"], width=8)
+        speed = ttk.Entry(controls, textvariable=self.var["expect_speed"], width=7)
         speed.pack(side=tk.LEFT)
         ttk.Label(controls, text="Mbps", style="MutedBg.TLabel").pack(side=tk.LEFT, padx=(4, 0))
         self.health_widgets = [spin, speed]
-        self.health_header = ttk.Label(page, text="", style="MutedBg.TLabel")
-        self.health_header.pack(anchor=tk.W, pady=(0, 6))
-        self.health_tree = self._table(page, [
-            ("port", "Port", 140), ("link", "Link", 80), ("speed", "Speed", 80),
-            ("switch", "Switch", 150),
-            ("usage", "Usage", 130), ("health", "Health", 100),
-            ("conf", "Confidence", 90), ("detail", "Detail", 330)], height=11)
-        self.health_tree.bind("<<TreeviewSelect>>", self._show_port_detail)
-        self.health_detail = scrolledtext.ScrolledText(page, height=9, relief="flat",
-                                                       font=("Consolas", 9))
-        self.health_detail.pack(fill=tk.X, pady=(10, 0))
+
+        self.tree = self._table(page, [
+            ("port", "Port", 150), ("status", "Status", 110),
+            ("to", "Connected to", 330), ("issues", "Issues", 260)], height=12)
+        self.tree.bind("<<TreeviewSelect>>", self._show_neighbor_detail)
+        self.neighbor_rows = {}
+
+        self.explain = scrolledtext.ScrolledText(page, height=10, relief="flat",
+                                                 wrap=tk.WORD)
+        self.explain.pack(fill=tk.BOTH, expand=False, pady=(10, 0))
+        self._explain_hint()
         self._sync_health_controls()
 
-    def _build_topology(self) -> None:
-        page = ttk.Frame(self.tabs, padding=14)
-        self.tabs.add(page, text="Topology")
+    def _explain_hint(self) -> None:
+        """An empty panel should still say what it is for."""
+        self.explain.delete(1.0, tk.END)
+        self.explain.insert(
+            tk.END, "Select a port above to see how its far end was established, "
+                    "what the two sides were compared on, and why the verdict is "
+                    "what it is.")
+
+    def _build_map_page(self) -> None:
+        page = ttk.Frame(self.pages)
+        self.page["map"] = page
         row = ttk.Frame(page)
-        row.pack(fill=tk.X)
+        row.pack(fill=tk.X, pady=(0, 8))
         ttk.Label(row, text="max depth", style="MutedBg.TLabel").pack(side=tk.LEFT)
         self.max_depth = tk.StringVar(value="2")
-        ttk.Spinbox(row, from_=0, to=10, width=5,
-                    textvariable=self.max_depth).pack(side=tk.LEFT, padx=(8, 20))
+        ttk.Spinbox(row, from_=1, to=8, width=4, textvariable=self.max_depth).pack(
+            side=tk.LEFT, padx=(8, 18))
         ttk.Label(row, text="max devices", style="MutedBg.TLabel").pack(side=tk.LEFT)
         self.max_devices = tk.StringVar(value="25")
-        ttk.Spinbox(row, from_=1, to=500, width=6,
-                    textvariable=self.max_devices).pack(side=tk.LEFT, padx=(8, 20))
-        ttk.Label(row, text="scope (CIDR)", style="MutedBg.TLabel").pack(side=tk.LEFT)
-        self.scope = tk.StringVar()
-        ttk.Entry(row, textvariable=self.scope, width=24).pack(side=tk.LEFT, padx=(8, 20))
+        ttk.Spinbox(row, from_=1, to=500, width=5,
+                    textvariable=self.max_devices).pack(side=tk.LEFT, padx=(8, 18))
+        ttk.Label(row, text="stay inside (CIDR)", style="MutedBg.TLabel").pack(side=tk.LEFT)
+        self.scope = tk.StringVar(value="")
+        scope = ttk.Entry(row, textvariable=self.scope, width=22)
+        scope.pack(side=tk.LEFT, padx=(8, 18))
         self.auto_discover = tk.BooleanVar(value=False)
-        ttk.Checkbutton(row, text="Auto Discovery (do not ask)",
+        ttk.Checkbutton(row, text="keep going without asking",
                         variable=self.auto_discover).pack(side=tk.LEFT)
+
         buttons = ttk.Frame(page)
-        buttons.pack(fill=tk.X, pady=(14, 0))
+        buttons.pack(fill=tk.X, pady=(0, 8))
         self.btn_topo = ttk.Button(buttons, text="Generate", style="Accent.TButton",
                                    command=self.start_topology)
         self.btn_topo.pack(side=tk.LEFT)
-        ttk.Button(buttons, text="View", command=self.view_topology).pack(side=tk.LEFT, padx=8)
-        ttk.Button(buttons, text="Merge...", command=self.merge_topologies).pack(side=tk.LEFT)
+        ttk.Button(buttons, text="Open", command=self.view_topology).pack(
+            side=tk.LEFT, padx=8)
+        ttk.Button(buttons, text="Merge...", command=self.merge_topologies).pack(
+            side=tk.LEFT)
         self.btn_stop = ttk.Button(buttons, text="Stop", command=self.stop_topology,
                                    state=tk.DISABLED)
         self.btn_stop.pack(side=tk.LEFT, padx=8)
+        self.map_hint = ttk.Label(
+            page, style="MutedBg.TLabel",
+            text="Walks outward from the address above and writes one HTML file "
+                 "you can open from disk.")
+        self.map_hint.pack(anchor=tk.W, pady=(0, 8))
+
         self.topo_tree = self._table(page, [
             ("depth", "Depth", 60), ("device", "Device", 170), ("kind", "Kind", 80),
-            ("state", "State", 110), ("ip", "Management IP", 180),
-            ("chassis", "Chassis", 150), ("why", "Why", 300)],
-            height=13, pady=(14, 0))
+            ("state", "State", 110), ("ip", "Management IP", 170),
+            ("why", "Why", 320)], height=16)
 
-    def _build_raw(self) -> None:
-        page = ttk.Frame(self.tabs, padding=(14, 12))
-        self.tabs.add(page, text="Raw")
-        bar = ttk.Frame(page)
-        bar.pack(fill=tk.X, pady=(0, 8))
-        ttk.Button(bar, text="Export CSV", command=self.export_csv).pack(side=tk.LEFT)
-        ttk.Button(bar, text="Export JSON", command=self.export_json).pack(side=tk.LEFT, padx=8)
-        ttk.Button(bar, text="Error details", command=self.show_details).pack(side=tk.LEFT)
-        ttk.Button(bar, text="Clear", command=lambda: self.log.delete(1.0, tk.END)).pack(
-            side=tk.RIGHT)
-        self.log = scrolledtext.ScrolledText(page, relief="flat", font=("Consolas", 9))
+    def _build_log_page(self) -> None:
+        page = ttk.Frame(self.pages)
+        self.page["log"] = page
+        row = ttk.Frame(page)
+        row.pack(fill=tk.X, pady=(0, 8))
+        ttk.Button(row, text="Save CSV", command=self.export_csv).pack(side=tk.LEFT)
+        ttk.Button(row, text="Save JSON", command=self.export_json).pack(
+            side=tk.LEFT, padx=8)
+        ttk.Button(row, text="Error details", command=self.show_details).pack(
+            side=tk.LEFT)
+        ttk.Button(row, text="Remembered switches",
+                   command=self.show_switches).pack(side=tk.LEFT, padx=8)
+        self.log = scrolledtext.ScrolledText(page, height=24, relief="flat",
+                                             wrap=tk.WORD)
         self.log.pack(fill=tk.BOTH, expand=True)
 
     def _table(self, parent, columns, height=16, pady=(0, 0)) -> ttk.Treeview:
@@ -525,22 +575,18 @@ class App:
     def retheme(self) -> None:
         self.theme.apply(self.var["theme"].get())
         colours = self.theme.colours
-        for tree in (self.tree, self.health_tree, self.topo_tree):
+        for tree in (self.tree, self.topo_tree):
             for token in ("ok", "warn", "bad", "off"):
                 tree.tag_configure(token, foreground=colours[token])
-        for widget in (self.log, self.health_detail, self.neighbor_detail):
+        for widget in (self.log, self.explain):
             widget.configure(background=colours["surface"], foreground=colours["text"],
                              insertbackground=colours["text"])
 
     def _sync_health_controls(self) -> None:
+        """The boxes stay dead until the read is asked for, so nothing is read."""
         state = tk.NORMAL if self.port_health.get() else tk.DISABLED
         for widget in self.health_widgets:
             widget.configure(state=state)
-        if not self.port_health.get():
-            self.health_tree.delete(*self.health_tree.get_children())
-            self.health_detail.delete(1.0, tk.END)
-            self.health_detail.insert(
-                tk.END, "Port health is off. Tick the box above and scan to read it.")
 
     def say(self, message: str) -> None:
         self.messages.put(message)
@@ -607,13 +653,19 @@ class App:
             port_health=self.port_health.get(), port_health_interval=interval,
             expect_speed=speed)
 
+    def targets_text(self) -> str:
+        """What the user typed, which is nothing when the hint is still showing."""
+        entry = getattr(self, "target_entry", None)
+        if entry is not None and getattr(entry, "is_placeholder", lambda: False)():
+            return ""
+        return self.var["targets"].get()
+
     def start(self) -> None:
-        targets = expand_targets([self.var["targets"].get()])
+        targets = expand_targets([self.targets_text()])
         if not targets:
             messagebox.showwarning("Nothing to do", "Enter a target address first.")
             return
         self.last_error = ""
-        self.tabs.select(0)
         self.btn_run.configure(state=tk.DISABLED, text="Scanning")
         self.status.busy("Scanning %s..." % targets[0])
         opts = self.build_options()
@@ -681,41 +733,11 @@ class App:
     def _finish(self, results: List[TargetResult], report=None) -> None:
         self.results = results
         self.health_report = report
+        self.port_rows = {}
         stamp = time.strftime("%H:%M:%S")
         self.scan_note.configure(
-            text="Scan of %d device(s) at %s: %s"
+            text="Scanned %d device(s) at %s: %s"
             % (len(results), stamp, ", ".join(r.target for r in results)))
-        self.tree.delete(*self.tree.get_children())
-        self.neighbor_rows = {}
-        self.neighbor_detail.delete(1.0, tk.END)
-        resolved = 0
-        for result in results:
-            for nb in result.neighbors:
-                ptp = (nb.extra.get("ptp") or {}).get("summary") or "-"
-                peer = nb.extra.get("ptp_peer") or "-"
-                tag = "ok" if nb.resolved else ("warn" if peer != "-" else "off")
-                item = self.tree.insert("", tk.END, tags=(tag,), values=(
-                    result.device_name or result.target,
-                    _local_label(nb), nb.switch or "-", nb.mgmt_ip or "-",
-                    nb.best_port or "-", nb.vlan or "-", ptp, peer,
-                    ("%s/%s" % (nb.proto, nb.source)) if nb.source else "-", nb.confidence))
-                self.neighbor_rows[item] = nb
-                resolved += 1 if nb.resolved else 0
-        self._present(results)
-        if report is not None:
-            self._present_health(report)
-        self.tabs.select(0 if len(results) == 1 else 1)
-        self.btn_run.configure(state=tk.NORMAL, text="Scan")
-        if resolved:
-            self.status.done("Done - %d link(s) resolved" % resolved, "UP")
-        else:
-            first = next((r for r in results if r.error), None)
-            if first is not None:
-                self.last_error = first.error
-            self.status.done(friendly_error(self.last_error) or "Nothing resolved", "DOWN")
-
-    def _present(self, results: List[TargetResult]) -> None:
-        """Several targets means several answers; show which one is on screen."""
         labels = ["%s  (%s)" % (r.target, r.device_name or r.kind or "?")
                   for r in results]
         self.device_pick.configure(values=labels)
@@ -727,57 +749,123 @@ class App:
             self.device_label.pack_forget()
             self.device_pick.pack_forget()
         self._show_device()
+        self.btn_run.configure(state=tk.NORMAL, text="Scan")
+        resolved = sum(1 for r in results for n in r.neighbors if n.resolved)
+        if resolved:
+            self.status.done("Done - %d link(s) resolved" % resolved, "UP")
+        else:
+            first = next((r for r in results if r.error), None)
+            if first is not None:
+                self.last_error = first.error
+            self.status.done(friendly_error(self.last_error) or "Nothing resolved",
+                             "DOWN")
+        self.mode.set("device")
+        self._show_mode()
+
+    def _health_for(self, nb):
+        """The switch port this cable lands on, if port health was read."""
+        for report in self._health_reports():
+            if report.host and nb.mgmt_ip and report.host != nb.mgmt_ip:
+                continue
+            for port in report.ports:
+                if nb.best_port and nb.best_port in (port.name, port.descr):
+                    return port
+        return None
+
+    def _health_reports(self):
+        report = self.health_report
+        if report is None:
+            return []
+        return list(report) if isinstance(report, (list, tuple)) else [report]
+
+    @staticmethod
+    def _connected_to(nb) -> str:
+        if nb.resolved:
+            return "%s  %s" % (nb.switch or "?", nb.best_port or "?")
+        peer = nb.extra.get("ptp_peer")
+        if peer:
+            how = {"direct": "direct cable, PTP",
+                   "segment": "same segment, PTP"}.get(
+                       nb.extra.get("ptp_peer_evidence", ""), "heard over PTP")
+            return "%s  (%s)" % (peer, how)
+        return "unknown"
+
+    def _issues_for(self, nb, port) -> str:
+        from .linkcheck import problems
+
+        bits = []
+        for layer in problems(nb.extra.get("checks") or {}):
+            verdict = (nb.extra["checks"][layer] or {}).get("verdict", "")
+            bits.append("%s %s" % (layer.upper(), verdict))
+        if port is not None and port.status in ("DEGRADED", "DOWN"):
+            bits.append("port %s" % port.status)
+        if not nb.resolved and not nb.extra.get("ptp_peer") and nb.local_speed:
+            bits.append("no LLDP")
+        return ", ".join(bits)
+
+    @staticmethod
+    def _status_of(nb, port) -> str:
+        if port is not None and port.oper:
+            state = port.oper.upper()
+        else:
+            state = "UP" if nb.local_speed else "-"
+        speed = (nb.local_speed or "").replace("Mb/s", "")
+        if speed.isdigit():
+            value = int(speed)
+            speed = "%dG" % (value // 1000) if value >= 1000 else "%dM" % value
+        return ("%s  %s" % (state, speed)).strip()
+
+    def _present(self, results: List[TargetResult]) -> None:
+        self._show_device()
 
     def _show_device(self, _event=None) -> None:
+        """One device, one table, one row per cable."""
+        self.tree.delete(*self.tree.get_children())
+        self.neighbor_rows = {}
+        self.explain.delete(1.0, tk.END)
         results = self.results or []
-        self.card_device.clear()
-        self.card_conn.clear()
-        self.card_neighbor.clear()
         if not results:
+            self.device_line.configure(text="Enter an address and press Scan.")
+            self._explain_hint()
             return
         index = self.device_pick.current() if len(results) > 1 else 0
         result = results[max(0, min(index, len(results) - 1))]
-        best = next((n for n in result.neighbors if n.resolved), None)
-        self.card_device.set("Hostname", result.device_name or "-")
-        self.card_device.set("Address", result.target)
-        self.card_device.set("Type", result.kind or "unknown")
-        self.card_device.set("Vendor", (result.device_descr or "-")[:40])
-        if best is None:
-            self.overview_note.configure(
-                text=friendly_error(result.error) if result.error
-                else "No neighbour was reported on any probed interface.")
-            self.card_neighbor.set("LLDP", "no", "DOWN")
-            return
-        self.overview_note.configure(text="")
-        self.card_conn.set("Switch", best.switch or "-")
-        self.card_conn.set("Port", best.best_port or "-")
-        self.card_conn.set("Switch IP", best.mgmt_ip or "-")
-        self.card_conn.set("VLAN", best.vlan or "-")
-        self.card_conn.set("Link", "UP", "UP")
-        self.card_conn.set("Via", "%s / %s" % (best.proto or "?", best.source or "?"))
-        seen = best.proto in ("LLDP", "CDP", "MNDP/LLDP")
-        self.card_neighbor.set("LLDP", "yes" if seen else "no", "UP" if seen else "UNKNOWN")
-        self.card_neighbor.set("Confidence", best.confidence, best.confidence)
-        self.card_neighbor.set("Note", best.note or "-")
+        parts = [result.device_name or result.target, result.kind or "unknown"]
+        if result.device_descr:
+            parts.append(result.device_descr[:46])
+        self.device_line.configure(text="  -  ".join(parts))
+        if result.error and not result.neighbors:
+            self.explain.insert(tk.END, friendly_error(result.error) or result.error)
+
+        for nb in result.neighbors:
+            port = self._health_for(nb)
+            issues = self._issues_for(nb, port)
+            tag = "bad" if issues else ("ok" if nb.resolved else "off")
+            if issues and not nb.resolved:
+                tag = "warn"
+            item = self.tree.insert("", tk.END, tags=(tag,), values=(
+                _local_label(nb), self._status_of(nb, port),
+                self._connected_to(nb), issues or "-"))
+            self.neighbor_rows[item] = (nb, port)
 
     def _show_neighbor_detail(self, _event=None) -> None:
-        """The answer first, then how it was reached.
+        """Everything known about one cable, the answer first."""
+        from .linkcheck import describe
 
-        The conclusion used to sit under eight lines of mechanical detail, which
-        put the one line worth reading below the fold of the panel.
-        """
         selection = self.tree.selection()
-        self.neighbor_detail.delete(1.0, tk.END)
+        self.explain.delete(1.0, tk.END)
         if not selection:
             return
-        nb = self.neighbor_rows.get(selection[0])
-        if nb is None:
+        found = self.neighbor_rows.get(selection[0])
+        if not found:
+            self._explain_hint()
             return
-        port = nb.extra.get("ptp") or {}
-        about = [bit for bit in (nb.local_mac, nb.local_speed) if bit]
+        nb, port = found
+        about = [bit for bit in (nb.local_mac, nb.local_speed,
+                                 "MTU %s" % nb.local_mtu if nb.local_mtu else "")
+                 if bit]
         lines = ["%s on %s%s" % (_local_label(nb), nb.host or "-",
                                  "   (%s)" % ", ".join(about) if about else "")]
-
         if nb.resolved:
             lines.append("Switch: %s - %s   [%s/%s]"
                          % (nb.switch or "-", nb.best_port or "-",
@@ -791,82 +879,41 @@ class App:
         if nb.note:
             lines.append(nb.note)
 
-        if port:
-            bits = []
-            for key in ("role", "state", "transport"):
-                if port.get(key):
-                    bits.append(str(port[key]))
-            if port.get("domain", -1) >= 0:
-                bits.append("domain %s" % port["domain"])
-            if port.get("offset_ns") is not None:
-                bits.append("offset %+d ns" % port["offset_ns"])
-            if port.get("port_identity"):
-                bits.append("clock %s" % port["port_identity"])
+        checks = nb.extra.get("checks") or {}
+        if checks:
             lines.append("")
-            lines.append("PTP: %s" % ", ".join(bits) if bits else "PTP: running")
-            for peer in port.get("peers") or []:
-                lines.append("  heard %s from %s (%s)"
-                             % (peer.get("clock_identity") or "?",
-                                peer.get("mac") or "?",
-                                "/".join(peer.get("messages") or []) or "ptp"))
-            for entry in port.get("responders") or []:
-                lines.append("  %s answered the segment query"
-                             % entry.get("clock_identity", "?"))
-        self.neighbor_detail.insert(tk.END, "\n".join(lines))
+            lines.extend(describe(checks))
+
+        ptp = nb.extra.get("ptp") or {}
+        if ptp:
+            bits = [str(ptp[k]) for k in ("role", "state", "transport") if ptp.get(k)]
+            if ptp.get("domain", -1) >= 0:
+                bits.append("domain %s" % ptp["domain"])
+            if ptp.get("offset_ns") is not None:
+                bits.append("offset %+d ns" % ptp["offset_ns"])
+            lines.append("")
+            lines.append("PTP: %s" % ", ".join(bits))
+
+        if port is not None:
+            lines.append("")
+            lines.append("Switch port %s: %s / %s, %s"
+                         % (port.label, port.status, port.usage,
+                            port.speed or "no speed"))
+            for key in ("rx_errors", "tx_errors", "rx_discards", "tx_discards"):
+                if key in port.counters:
+                    lines.append("  %-12s %d (+%d during the sample)"
+                                 % (key, port.counters[key],
+                                    port.deltas.get(key, 0)))
+            for reason in port.reasons:
+                lines.append("  %s" % reason)
+        self.explain.insert(tk.END, (chr(10)).join(lines))
 
     def _present_health(self, reports) -> None:
-        self.health_tree.delete(*self.health_tree.get_children())
-        self.health_detail.delete(1.0, tk.END)
-        self.port_rows = {}
-        if reports is None:
-            reports = []
-        elif not isinstance(reports, (list, tuple)):
-            reports = [reports]
-        if not reports:
-            self.health_header.configure(text="")
-            return
-        names = []
-        failed = []
-        for report in reports:
-            name = report.switch_name or report.host
-            if report.error and not report.ports:
-                failed.append("%s: %s" % (name, friendly_error(report.error)))
-                continue
-            names.append("%s (%s, %d ports)" % (name, report.host,
-                                                len(report.ports)))
-            for port in report.ports:
-                detail = ""
-                if port.status == "DEGRADED":
-                    detail = "; ".join(port.reasons[:2])
-                elif port.neighbour:
-                    detail = "%s / %s" % (port.neighbour,
-                                          port.neighbour_port or "?")
-                elif port.fdb_macs:
-                    detail = "%d MAC(s) learned" % port.fdb_macs
-                item = self.health_tree.insert(
-                    "", tk.END, tags=(STATUS_COLOUR.get(port.status, "off"),),
-                    values=(port.label, port.oper.upper() if port.oper else "-",
-                            port.speed or "-", name, port.usage, port.status,
-                            port.confidence.upper(), detail))
-                self.port_rows[item] = port
-        self.health_header.configure(
-            text=("Read from " + "; ".join(names)) if names
-            else "No switch answered SNMP.")
-        lines = ["%s: %s" % (r.switch_name or r.host, r.summary())
-                 for r in reports if r.ports]
-        lines.extend(failed)
-        if lines:
-            lines.append("")
-            lines.append("Select a port to see its counters.")
-        self.health_detail.insert(tk.END, "\n".join(lines))
+        """Port health is a layer on the device table, not a page of its own."""
+        self._show_device()
 
     def _show_port_detail(self, _event=None) -> None:
-        from .port_health import render_detail
-        selection = self.health_tree.selection()
-        if not selection or selection[0] not in self.port_rows:
-            return
-        self.health_detail.delete(1.0, tk.END)
-        self.health_detail.insert(tk.END, render_detail(self.port_rows[selection[0]]))
+        self._show_neighbor_detail()
 
     def _confirm_on_main_thread(self, depth, candidates) -> bool:
         answer = {"yes": False}
@@ -891,7 +938,7 @@ class App:
             "device %d, queued %d" % (done, queued)))
 
     def start_topology(self) -> None:
-        seeds = expand_targets([self.var["targets"].get()])
+        seeds = expand_targets([self.targets_text()])
         if not seeds:
             messagebox.showwarning("No seed", "Put the seed address in Target.")
             return
@@ -900,7 +947,8 @@ class App:
             initialfile="site.topology.html", filetypes=[("HTML", "*.html")])
         if not path:
             return
-        self.tabs.select(3)
+        self.mode.set("map")
+        self._show_mode()
         self.topo_tree.delete(*self.topo_tree.get_children())
         self.btn_topo.configure(state=tk.DISABLED, text="Discovering")
         self.btn_run.configure(state=tk.DISABLED)
@@ -998,6 +1046,32 @@ class App:
         if messagebox.askyesno("Merged", "Open the combined map?"):
             webbrowser.open("file:///" + out.replace("\\", "/"))
 
+    def compare_topologies(self) -> None:
+        """Two saved scans, and what moved between them."""
+        from .diff import compare_files, render as render_diff
+
+        before = filedialog.askopenfilename(title="The earlier topology JSON",
+                                            filetypes=[("JSON", "*.json")])
+        if not before:
+            return
+        after = filedialog.askopenfilename(title="The later topology JSON",
+                                           filetypes=[("JSON", "*.json")])
+        if not after:
+            return
+        try:
+            report = compare_files(before, after)
+        except Exception as exc:
+            self.last_error = "%s: %s" % (type(exc).__name__, exc)
+            messagebox.showerror("Compare failed", friendly_error(self.last_error)
+                                 or self.last_error)
+            return
+        self.mode.set("log")
+        self._show_mode()
+        self.say("")
+        for line in render_diff(report).splitlines():
+            self.say(line)
+        self.status.done(report.summary(), "UP" if report.quiet else "DEGRADED")
+
     def view_topology(self) -> None:
         path = self.last_topology_html
         if not path or not os.path.exists(path):
@@ -1008,7 +1082,8 @@ class App:
             webbrowser.open("file:///" + path.replace("\\", "/"))
 
     def show_switches(self) -> None:
-        self.tabs.select(4)
+        self.mode.set("log")
+        self._show_mode()
         for line in store.describe().splitlines():
             self.say(line)
 
