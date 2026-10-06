@@ -595,6 +595,10 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
     found_bonds = bonds_from_ifaces(ifaces)
     if found_bonds:
         result.extra["bonds"] = found_bonds
+    from .duplicates import collect as collect_neighbours
+    learned = collect_neighbours(lambda cmd: ssh.run(cmd, timeout=30)[1], say)
+    if learned:
+        result.extra["neighbours"] = learned
     if ssh.have("ethtool"):
         from .optics import collect as collect_optics
         modules = collect_optics(lambda cmd: ssh.run(cmd, timeout=60)[1], say)

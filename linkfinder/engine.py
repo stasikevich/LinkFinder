@@ -280,6 +280,12 @@ def _finish_results(results: List[TargetResult], opts: Options,
     except Exception as exc:
         if log:
             log("  optics comparison failed: %s" % exc)
+    try:
+        from .duplicates import find as find_duplicates
+        find_duplicates(results, log=log)
+    except Exception as exc:
+        if log:
+            log("  duplicate search failed: %s" % exc)
     return results
 
 

@@ -490,6 +490,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         if summary:
             print("\n" + summary, file=sys.stderr)
 
+    for result in results:
+        found = (getattr(result, "extra", {}) or {}).get("duplicates")
+        if found:
+            from .duplicates import render as render_duplicates
+            text = render_duplicates(found)
+            if text:
+                print("")
+                print(text)
+            break
     if args.ptp:
         run_switch_ptp(args, opts, targets, results)
     if args.port_health:
