@@ -88,6 +88,7 @@ class TargetResult:
     device_name: str = UNKNOWN       # the interrogated device's own name
     device_chassis: str = UNKNOWN    # and its own chassis id, when it tells us
     device_descr: str = UNKNOWN
+    extra: Dict[str, Any] = field(default_factory=dict)
 
     def add(self, nb: Neighbor) -> None:
         nb.fill_switch_name()

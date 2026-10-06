@@ -36,6 +36,8 @@ COLUMNS = [
     ("desc", "PORT DESC", lambda n: n.port_desc or "-"),
     ("vlan", "VLAN", lambda n: n.vlan or "-"),
     ("via", "VIA", lambda n: "%s/%s" % (n.proto, n.source) if n.source else "-"),
+    ("ptp", "PTP", lambda n: (n.extra.get("ptp") or {}).get("summary") or "-"),
+    ("peer", "PEER", lambda n: n.extra.get("ptp_peer") or "-"),
     ("conf", "CONF", lambda n: n.confidence),
     ("note", "NOTE", lambda n: n.note or "-"),
 ]
@@ -49,8 +51,14 @@ def render_table(results: List[TargetResult], wide: bool = False) -> str:
     if not rows:
         return ""
     headers = [h for _k, h, _g in COLUMNS]
+    keys = [k for k, _h, _g in COLUMNS]
     if not wide:
-        keep = [0, 1, 2, 3, 4, 6, 7, 8]  # everything but PORT DESC and NOTE
+        drop = {"desc", "note"}
+        for optional in ("ptp", "peer"):
+            column = keys.index(optional)
+            if all(row[column] == "-" for row in rows):
+                drop.add(optional)
+        keep = [i for i, k in enumerate(keys) if k not in drop]
         headers = [headers[i] for i in keep]
         rows = [[r[i] for i in keep] for r in rows]
     widths = [len(h) for h in headers]
@@ -178,6 +186,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="never PATCH the BMC to switch its LLDP receiver on")
     p.add_argument("--iface", action="append", default=None,
                    help="limit to these interfaces (repeatable); bonds expand to their slaves")
+    p.add_argument("--no-ptp", dest="ptp", action="store_false",
+                   help="skip the PTP read; by default the timing role of each "
+                        "port is reported, and PTP is used to name the far end "
+                        "of a cable that carries no LLDP")
     p.add_argument("--mgmt-only", action="store_true",
                    help="only the interface carrying the target IP (old LLDP_Checker behaviour)")
     p.add_argument("-t", "--seconds", type=int, default=65,
@@ -289,6 +301,7 @@ def options_from_args(args: argparse.Namespace) -> Options:
         ifaces=args.iface, mgmt_only=args.mgmt_only, mac=args.mac,
         workers=args.workers, verbose=not args.quiet, learn=args.learn,
         remember_credentials=args.remember_credentials, cred_list=extra_creds,
+        ptp=args.ptp,
         port_health=args.port_health, port_health_interval=args.port_health_interval,
         expect_speed=args.expect_speed, all_interfaces=args.all_interfaces)
 
@@ -334,29 +347,33 @@ def run_merge(args) -> int:
     return report_topology(combined, args, label="merged")
 
 
-def run_port_health(args, opts, hosts) -> None:
+def run_port_health(args, opts, hosts, results=None) -> None:
     """Opt-in only. A failure here is reported and then ignored - the discovery
     result the user asked for is already on screen."""
-    from .port_health import collect_safely, render_report
+    from .port_health import collect_safely, render_report, switches_worth_asking
     from .probe_snmp import build_switches
 
-    specs = list(dict.fromkeys(list(hosts) + list(args.switch)))
+    specs = switches_worth_asking(results=results, explicit=args.switch, targets=hosts)
     if not specs:
+        print("", file=sys.stderr)
+        print("Port health: no switch to ask. Nothing we found publishes a usable "
+              "management address; name one with --switch.", file=sys.stderr)
         return
+    answered = False
     for switch in build_switches(specs, opts.community):
         if not switch.identify():
-            print("", file=sys.stderr)
-            print("Port health on %s: UNKNOWN" % switch.host,
-                  file=sys.stderr)
-            print("Error: the device did not answer SNMP (check --community)",
-                  file=sys.stderr)
             continue
+        answered = True
         report = collect_safely(
             switch, interval=args.port_health_interval, expect_speed=args.expect_speed,
             physical_only=not args.all_interfaces,
             log=(lambda m: print(m, file=sys.stderr)) if opts.verbose else None)
         print("")
         print(render_report(report))
+    if not answered:
+        print("", file=sys.stderr)
+        print("Port health: none of %s answered SNMP (check --community, or name "
+              "the switch with --switch)" % ", ".join(specs), file=sys.stderr)
 
 
 def run_topology(args) -> int:
@@ -434,7 +451,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             print("\n" + summary, file=sys.stderr)
 
     if args.port_health:
-        run_port_health(args, opts, targets)
+        run_port_health(args, opts, targets, results)
 
     if args.as_csv:
         text = render_csv(results)

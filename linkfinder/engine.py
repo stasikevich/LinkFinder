@@ -47,6 +47,7 @@ class Options:
     port_health_interval: float = 3.0
     expect_speed: int = 0
     all_interfaces: bool = False
+    ptp: bool = True
 
 
 def load_config() -> Dict[str, object]:
@@ -189,13 +190,15 @@ def discover_one(target: str, opts: Options, log: Optional[Callable[[str], None]
         elif mode in ("ssh", "linux", "esxi", "windows"):
             from .probe_linux import run_linux_target
             got = run_linux_target(target, opts.ssh, want_ifaces=opts.ifaces,
-                                   mgmt_only=opts.mgmt_only, seconds=opts.seconds, log=say)
+                                   mgmt_only=opts.mgmt_only, seconds=opts.seconds,
+                                   ptp=opts.ptp, log=say)
             result.kind = got.kind
             result.error = got.error
             result.device_name = got.device_name
             result.device_chassis = got.device_chassis
             result.device_descr = got.device_descr
             result.attempts.extend(got.attempts)
+            result.extra.update(got.extra)
             for nb in got.neighbors:
                 result.add(nb)
         elif mode == "bmc":
@@ -250,10 +253,20 @@ def discover_one(target: str, opts: Options, log: Optional[Callable[[str], None]
     return result
 
 
+def _name_ptp_peers(results: List[TargetResult]) -> List[TargetResult]:
+    """A clock heard on one host is often a port on another host in the run."""
+    try:
+        from .ptp import name_peers
+        name_peers(results)
+    except Exception:
+        pass
+    return results
+
+
 def discover_many(targets: List[str], opts: Options,
                   log: Optional[Callable[[str], None]] = None) -> List[TargetResult]:
     if len(targets) == 1:
-        return [discover_one(targets[0], opts, log=log)]
+        return _name_ptp_peers([discover_one(targets[0], opts, log=log)])
     say = log or (lambda _m: None)
     buffers: Dict[str, List[str]] = {t: [] for t in targets}
     results: Dict[str, TargetResult] = {}
@@ -274,7 +287,7 @@ def discover_many(targets: List[str], opts: Options,
                 results[target] = failed
             for line in buffers[target]:
                 say(line)
-    return [results[t] for t in targets]
+    return _name_ptp_peers([results[t] for t in targets])
 
 
 def expand_targets(values: List[str], targets_file: str = "") -> List[str]:

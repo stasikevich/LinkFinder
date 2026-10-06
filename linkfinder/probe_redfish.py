@@ -24,6 +24,7 @@ except ImportError:
     requests = None
 
 from .model import Neighbor, ProbeAttempt, TargetResult
+from .netaddr import is_ip
 
 CHASSIS_KEYS = re.compile(r"^(chassisid|switchconnectionid|remotechassisid)$", re.I)
 PORT_KEYS = re.compile(r"^(portid|switchportconnectionid|remoteportid)$", re.I)
@@ -151,12 +152,7 @@ MAC_LOOK = re.compile(r"^([0-9a-f]{2}[:-]){5}[0-9a-f]{2}$", re.I)
 def _looks_like_ip(text: str) -> bool:
     """Supermicro publishes ManagementAddressMAC next to the IPv4 one; a MAC is
     not an address we can connect to, and must never reach the switch-IP column."""
-    if not text or MAC_LOOK.match(text):
-        return False
-    parts = text.split(".")
-    if len(parts) == 4 and all(p.isdigit() and 0 <= int(p) < 256 for p in parts):
-        return True
-    return ":" in text and text.count(":") > 5 and not MAC_LOOK.match(text)
+    return is_ip(text)
 
 
 def neighbor_from_lldp_block(block: Dict[str, Any]) -> Optional[Neighbor]:

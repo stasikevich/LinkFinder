@@ -56,6 +56,32 @@ class FakeClient:
         for ifindex, value in sorted(self.mib.get(root, {}).items()):
             yield "%s.%d" % (root, ifindex), value
 
+    def get(self, *oids):
+        """The collector asks for columns by index now, not by walking."""
+        out = []
+        advance = False
+        for oid in oids:
+            root, _dot, index = oid.rpartition(".")
+            if root in self.fail:
+                raise SnmpError("timeout on %s" % root)
+            table = None
+            for label, coid in COUNTER_OIDS.items():
+                if root == coid:
+                    table = self._counter_table().get(label, {})
+                    advance = advance or label == "tx_octets"
+                    break
+            if table is None:
+                table = self.mib.get(root, {})
+            try:
+                key = int(index)
+            except ValueError:
+                continue
+            if key in table:
+                out.append((oid, table[key]))
+        if advance:
+            self.read += 1
+        return out
+
     def get_one(self, oid):
         if oid in self.fail:
             raise SnmpError("timeout on %s" % oid)

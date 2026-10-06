@@ -42,6 +42,13 @@ PALETTES = {
     },
 }
 
+EVIDENCE = {
+    "direct": "most likely a direct cable - each end hears only the other",
+    "segment": "same layer-2 segment; a multicast frame does not prove a cable",
+    "heard-by": "the far end hears this port's clock, so they share a segment",
+    "heard": "frames were heard on this port",
+}
+
 STATUS_COLOUR = {
     "UP": "ok", "USED": "ok", "scanned": "ok", "high": "ok",
     "DEGRADED": "warn", "medium": "warn", "FREE_CANDIDATE": "warn",
@@ -373,6 +380,13 @@ class App:
     def _build_overview(self) -> None:
         page = ttk.Frame(self.tabs, padding=14)
         self.tabs.add(page, text="Overview")
+        picker = ttk.Frame(page)
+        picker.pack(fill=tk.X, pady=(0, 10))
+        self.device_label = ttk.Label(picker, text="Device",
+                                      style="MutedBg.TLabel")
+        self.device_pick = ttk.Combobox(picker, state="readonly", width=34,
+                                        values=[])
+        self.device_pick.bind("<<ComboboxSelected>>", self._show_device)
         top = ttk.Frame(page)
         top.pack(fill=tk.X)
         self.card_device = Card(top, "Device", self.theme)
@@ -384,6 +398,8 @@ class App:
         self.overview_note = ttk.Label(page, text="Enter a target and press Scan.",
                                        style="MutedBg.TLabel")
         self.overview_note.pack(anchor=tk.W, pady=(16, 0))
+        self.scan_note = ttk.Label(page, text="", style="MutedBg.TLabel")
+        self.scan_note.pack(anchor=tk.W, pady=(6, 0))
         for key in ("Hostname", "Address", "Type", "Vendor"):
             self.card_device.set(key, "")
         for key in ("Switch", "Port", "Switch IP", "VLAN", "Link", "Via"):
@@ -395,9 +411,15 @@ class App:
         page = ttk.Frame(self.tabs, padding=(14, 12))
         self.tabs.add(page, text="Neighbors")
         self.tree = self._table(page, [
-            ("iface", "Local port", 130), ("switch", "Switch", 150),
-            ("switchip", "Switch IP", 120), ("port", "Switch port", 170),
-            ("vlan", "VLAN", 60), ("via", "Via", 180), ("conf", "Confidence", 90)])
+            ("iface", "Local port", 120), ("switch", "Switch", 130),
+            ("switchip", "Switch IP", 110), ("port", "Switch port", 150),
+            ("vlan", "VLAN", 55), ("ptp", "PTP", 130), ("peer", "Peer", 180),
+            ("via", "Via", 150), ("conf", "Confidence", 85)])
+        self.tree.bind("<<TreeviewSelect>>", self._show_neighbor_detail)
+        self.neighbor_detail = scrolledtext.ScrolledText(page, height=11, relief="flat",
+                                                         wrap=tk.WORD)
+        self.neighbor_detail.pack(fill=tk.X, pady=(10, 0))
+        self.neighbor_rows = {}
 
     def _build_port_health(self) -> None:
         page = ttk.Frame(self.tabs, padding=(14, 12))
@@ -422,9 +444,12 @@ class App:
         speed.pack(side=tk.LEFT)
         ttk.Label(controls, text="Mbps", style="MutedBg.TLabel").pack(side=tk.LEFT, padx=(4, 0))
         self.health_widgets = [spin, speed]
+        self.health_header = ttk.Label(page, text="", style="MutedBg.TLabel")
+        self.health_header.pack(anchor=tk.W, pady=(0, 6))
         self.health_tree = self._table(page, [
             ("port", "Port", 140), ("link", "Link", 80), ("speed", "Speed", 80),
-            ("usage", "Usage", 140), ("health", "Health", 110),
+            ("switch", "Switch", 150),
+            ("usage", "Usage", 130), ("health", "Health", 100),
             ("conf", "Confidence", 90), ("detail", "Detail", 330)], height=11)
         self.health_tree.bind("<<TreeviewSelect>>", self._show_port_detail)
         self.health_detail = scrolledtext.ScrolledText(page, height=9, relief="flat",
@@ -462,9 +487,10 @@ class App:
                                    state=tk.DISABLED)
         self.btn_stop.pack(side=tk.LEFT, padx=8)
         self.topo_tree = self._table(page, [
-            ("depth", "Depth", 70), ("device", "Device", 190), ("kind", "Kind", 90),
-            ("state", "State", 120), ("ip", "Management IP", 160),
-            ("chassis", "Chassis", 180)], height=13, pady=(14, 0))
+            ("depth", "Depth", 60), ("device", "Device", 170), ("kind", "Kind", 80),
+            ("state", "State", 110), ("ip", "Management IP", 180),
+            ("chassis", "Chassis", 150), ("why", "Why", 300)],
+            height=13, pady=(14, 0))
 
     def _build_raw(self) -> None:
         page = ttk.Frame(self.tabs, padding=(14, 12))
@@ -501,7 +527,7 @@ class App:
         for tree in (self.tree, self.health_tree, self.topo_tree):
             for token in ("ok", "warn", "bad", "off"):
                 tree.tag_configure(token, foreground=colours[token])
-        for widget in (self.log, self.health_detail):
+        for widget in (self.log, self.health_detail, self.neighbor_detail):
             widget.configure(background=colours["surface"], foreground=colours["text"],
                              insertbackground=colours["text"])
 
@@ -599,41 +625,69 @@ class App:
         try:
             results = discover_many(targets, opts, log=self.say)
             if opts.port_health:
-                report = self._collect_health(targets, opts)
+                report = self._collect_health(targets, opts, results)
         except Exception as exc:
             self.last_error = "%s: %s" % (type(exc).__name__, exc)
             self.say(self.last_error)
         self.root.after(0, lambda: self._finish(results, report))
 
-    def _collect_health(self, targets, opts):
-        from .port_health import collect_safely
+    def _collect_health(self, targets, opts, results=None):
+        """Ask every switch the scan found, not the server we were pointed at.
+
+        Reporting only the first one that answered hid the rest: a handful of
+        servers usually face two or three switches, and the one that answers
+        first is not necessarily the one being asked about.
+        """
+        from .port_health import collect_safely, switches_worth_asking
         from .probe_snmp import build_switches
 
-        hosts = list(dict.fromkeys(list(targets) + list(opts.switches)))
+        hosts = switches_worth_asking(results=results, explicit=opts.switches,
+                                      targets=targets)
+        if not hosts:
+            self.say("  port health: nothing we found publishes a usable management "
+                     "address, so there is no switch to ask")
+            return []
+        reports = []
         for switch in build_switches(hosts, opts.community):
             if not switch.identify():
+                self.say("  port health: %s did not answer SNMP" % switch.host)
                 continue
-            self.say("  reading port health on %s" % switch.host)
-            return collect_safely(switch, interval=opts.port_health_interval,
-                                  expect_speed=opts.expect_speed, log=self.say)
-        self.say("  no switch answered SNMP, so there is no port health to read")
-        return None
+            self.say("  reading port health on %s (%s)" % (switch.name, switch.host))
+            reports.append(collect_safely(switch,
+                                          interval=opts.port_health_interval,
+                                          expect_speed=opts.expect_speed,
+                                          log=self.say))
+        if not reports:
+            self.say("  port health: none of %s answered SNMP - check the community "
+                     "under Advanced" % ", ".join(hosts))
+        return reports
 
     def _finish(self, results: List[TargetResult], report=None) -> None:
         self.results = results
         self.health_report = report
+        stamp = time.strftime("%H:%M:%S")
+        self.scan_note.configure(
+            text="Scan of %d device(s) at %s: %s"
+            % (len(results), stamp, ", ".join(r.target for r in results)))
         self.tree.delete(*self.tree.get_children())
+        self.neighbor_rows = {}
+        self.neighbor_detail.delete(1.0, tk.END)
         resolved = 0
         for result in results:
             for nb in result.neighbors:
-                self.tree.insert("", tk.END, tags=("ok" if nb.resolved else "off",), values=(
+                ptp = (nb.extra.get("ptp") or {}).get("summary") or "-"
+                peer = nb.extra.get("ptp_peer") or "-"
+                tag = "ok" if nb.resolved else ("warn" if peer != "-" else "off")
+                item = self.tree.insert("", tk.END, tags=(tag,), values=(
                     _local_label(nb), nb.switch or "-", nb.mgmt_ip or "-",
-                    nb.best_port or "-", nb.vlan or "-",
+                    nb.best_port or "-", nb.vlan or "-", ptp, peer,
                     ("%s/%s" % (nb.proto, nb.source)) if nb.source else "-", nb.confidence))
+                self.neighbor_rows[item] = nb
                 resolved += 1 if nb.resolved else 0
         self._present(results)
         if report is not None:
             self._present_health(report)
+        self.tabs.select(0 if len(results) == 1 else 1)
         self.btn_run.configure(state=tk.NORMAL, text="Scan")
         if resolved:
             self.status.done("Done - %d link(s) resolved" % resolved, "UP")
@@ -644,12 +698,28 @@ class App:
             self.status.done(friendly_error(self.last_error) or "Nothing resolved", "DOWN")
 
     def _present(self, results: List[TargetResult]) -> None:
+        """Several targets means several answers; show which one is on screen."""
+        labels = ["%s  (%s)" % (r.target, r.device_name or r.kind or "?")
+                  for r in results]
+        self.device_pick.configure(values=labels)
+        if len(results) > 1:
+            self.device_label.pack(side=tk.LEFT, padx=(0, 8))
+            self.device_pick.pack(side=tk.LEFT)
+            self.device_pick.current(0)
+        else:
+            self.device_label.pack_forget()
+            self.device_pick.pack_forget()
+        self._show_device()
+
+    def _show_device(self, _event=None) -> None:
+        results = self.results or []
         self.card_device.clear()
         self.card_conn.clear()
         self.card_neighbor.clear()
         if not results:
             return
-        result = results[0]
+        index = self.device_pick.current() if len(results) > 1 else 0
+        result = results[max(0, min(index, len(results) - 1))]
         best = next((n for n in result.neighbors if n.resolved), None)
         self.card_device.set("Hostname", result.device_name or "-")
         self.card_device.set("Address", result.target)
@@ -673,32 +743,97 @@ class App:
         self.card_neighbor.set("Confidence", best.confidence, best.confidence)
         self.card_neighbor.set("Note", best.note or "-")
 
-    def _present_health(self, report) -> None:
+    def _show_neighbor_detail(self, _event=None) -> None:
+        """The table says what; this says how we know, which is the part that matters."""
+        selection = self.tree.selection()
+        self.neighbor_detail.delete(1.0, tk.END)
+        if not selection:
+            return
+        nb = self.neighbor_rows.get(selection[0])
+        if nb is None:
+            return
+        lines = ["Local port: %s" % _local_label(nb)]
+        if nb.local_mac:
+            lines.append("MAC: %s" % nb.local_mac)
+        if nb.local_speed:
+            lines.append("Speed: %s" % nb.local_speed)
+        if nb.resolved:
+            lines.append("")
+            lines.append("Switch: %s" % (nb.switch or "-"))
+            lines.append("Switch port: %s" % (nb.best_port or "-"))
+            lines.append("Learned from: %s/%s" % (nb.proto or "-", nb.source or "-"))
+        port = nb.extra.get("ptp") or {}
+        if port:
+            lines.append("")
+            lines.append("PTP:")
+            for label, key in (("Role", "role"), ("State", "state"),
+                               ("Transport", "transport"), ("Clock", "port_identity"),
+                               ("Grandmaster", "gm_identity")):
+                if port.get(key):
+                    lines.append("  %s: %s" % (label, port[key]))
+            if port.get("domain", -1) >= 0:
+                lines.append("  Domain: %s" % port["domain"])
+            if port.get("offset_ns") is not None:
+                lines.append("  Offset: %+d ns" % port["offset_ns"])
+            for peer in port.get("peers") or []:
+                lines.append("  Heard: %s from %s (%s)"
+                             % (peer.get("clock_identity") or "?", peer.get("mac") or "?",
+                                "/".join(peer.get("messages") or []) or "ptp"))
+        if nb.extra.get("ptp_peer"):
+            lines.append("")
+            lines.append("Far end: %s" % nb.extra["ptp_peer"])
+            lines.append("Evidence: %s" % EVIDENCE.get(
+                nb.extra.get("ptp_peer_evidence", ""), "heard on this port"))
+        if nb.note:
+            lines.append("")
+            lines.append(nb.note)
+        self.neighbor_detail.insert(tk.END, "\n".join(lines))
+
+    def _present_health(self, reports) -> None:
         self.health_tree.delete(*self.health_tree.get_children())
         self.health_detail.delete(1.0, tk.END)
         self.port_rows = {}
-        if report is None:
+        if reports is None:
+            reports = []
+        elif not isinstance(reports, (list, tuple)):
+            reports = [reports]
+        if not reports:
+            self.health_header.configure(text="")
             return
-        if report.error and not report.ports:
-            self.health_detail.insert(tk.END, "Port health: UNKNOWN\nError: %s"
-                                      % friendly_error(report.error))
-            return
-        for port in report.ports:
-            detail = ""
-            if port.status == "DEGRADED":
-                detail = "; ".join(port.reasons[:2])
-            elif port.neighbour:
-                detail = "%s / %s" % (port.neighbour, port.neighbour_port or "?")
-            elif port.fdb_macs:
-                detail = "%d MAC(s) learned" % port.fdb_macs
-            item = self.health_tree.insert(
-                "", tk.END, tags=(STATUS_COLOUR.get(port.status, "off"),),
-                values=(port.label, port.oper.upper() if port.oper else "-",
-                        port.speed or "-", port.usage, port.status,
-                        port.confidence.upper(), detail))
-            self.port_rows[item] = port
-        self.health_detail.insert(
-            tk.END, report.summary() + "\n\nSelect a port to see its counters.")
+        names = []
+        failed = []
+        for report in reports:
+            name = report.switch_name or report.host
+            if report.error and not report.ports:
+                failed.append("%s: %s" % (name, friendly_error(report.error)))
+                continue
+            names.append("%s (%s, %d ports)" % (name, report.host,
+                                                len(report.ports)))
+            for port in report.ports:
+                detail = ""
+                if port.status == "DEGRADED":
+                    detail = "; ".join(port.reasons[:2])
+                elif port.neighbour:
+                    detail = "%s / %s" % (port.neighbour,
+                                          port.neighbour_port or "?")
+                elif port.fdb_macs:
+                    detail = "%d MAC(s) learned" % port.fdb_macs
+                item = self.health_tree.insert(
+                    "", tk.END, tags=(STATUS_COLOUR.get(port.status, "off"),),
+                    values=(port.label, port.oper.upper() if port.oper else "-",
+                            port.speed or "-", name, port.usage, port.status,
+                            port.confidence.upper(), detail))
+                self.port_rows[item] = port
+        self.health_header.configure(
+            text=("Read from " + "; ".join(names)) if names
+            else "No switch answered SNMP.")
+        lines = ["%s: %s" % (r.switch_name or r.host, r.summary())
+                 for r in reports if r.ports]
+        lines.extend(failed)
+        if lines:
+            lines.append("")
+            lines.append("Select a port to see its counters.")
+        self.health_detail.insert(tk.END, "\n".join(lines))
 
     def _show_port_detail(self, _event=None) -> None:
         from .port_health import render_detail
@@ -791,7 +926,8 @@ class App:
                     "", tk.END, tags=(STATUS_COLOUR.get(node.state, "off"),),
                     values=("-" if node.depth is None else node.depth, node.label,
                             node.kind, node.state, ", ".join(node.mgmt_ips) or "-",
-                            node.chassis_id or "-"))
+                            node.chassis_id or "-",
+                            friendly_error(node.error) or node.error or "-"))
             self.status.done(topology.summary(), "UP" if topology.nodes else "DOWN")
         else:
             self.status.done(friendly_error(self.last_error) or "Topology failed", "DOWN")

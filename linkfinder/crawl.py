@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 from .neighbors import DeviceView, KIND_UNKNOWN, collect_device, neighbour_identity
+from .netaddr import mgmt_problem
 from .topology import (STATE_LIMIT, STATE_OUT_OF_SCOPE, STATE_SCANNED, STATE_UNREACHABLE,
                        STATE_UNSCANNED, Node, Topology, node_key)
 
@@ -112,17 +113,22 @@ class Crawler:
             if not (chassis or mgmt_ip or name):
                 continue
             state = STATE_UNSCANNED
+            unusable = mgmt_problem(mgmt_ip) if mgmt_ip else ""
             if mgmt_ip and not self.limits.in_scope(mgmt_ip):
                 state = STATE_OUT_OF_SCOPE
             far = self.topology.add_node(
                 chassis_id=chassis, mgmt_ip=mgmt_ip, name=name, kind=kind,
                 vendor=nb.sys_desc, state=state, source=nb.source or nb.proto,
-                depth=depth + 1)
+                depth=depth + 1,
+                error="the only address it publishes is %s (%s)" % (mgmt_ip, unusable)
+                if unusable else "")
             self.topology.add_edge(
                 a=device.id, a_iface=nb.local_iface, b=far.id, b_iface=nb.best_port,
                 proto=nb.proto, source=nb.source, reported_by=device.id,
                 vlan=nb.vlan, speed=nb.local_speed)
             if state == STATE_OUT_OF_SCOPE or not mgmt_ip:
+                continue
+            if unusable:
                 continue
             if self._already_done(mgmt_ip) or far.id in self.visited:
                 continue

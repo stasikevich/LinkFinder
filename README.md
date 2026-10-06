@@ -123,6 +123,10 @@ extra SNMP request is made.
 python -m linkfinder 198.51.100.1 --port-health --community <community>
 ```
 
+You point it at a server and it asks **the switch that server is plugged into**, not the
+server - the switch found during the scan is tried first, then anything named with
+`--switch`, then the targets themselves. Name a switch directly and it is used as given.
+
 It reads the switch port table over the SNMP transport discovery already uses and gives
 each port a verdict: `UP`, `DOWN`, `DISABLED`, `DEGRADED` or `UNKNOWN`, plus whether the
 port looks `USED` or a `FREE_CANDIDATE`, and how confident that is.
@@ -131,6 +135,40 @@ port looks `USED` or a `FREE_CANDIDATE`, and how confident that is.
 counters are read twice a few seconds apart and only a counter that actually moved counts
 as evidence. A port with thousands of old errors and none new is reported healthy; a port
 whose errors grew by 37 during the sample is DEGRADED, and the reason says so.
+
+A port with no link reports no speed. `ifSpeed` still returns a number on a dead port and
+it is not a negotiated one.
+
+## Timing and direct links
+
+A fronthaul port is usually cabled straight into another server or a radio: no switch in
+the path, no LLDP anywhere, and the ladder can only report it as unresolved. PTP is on
+that cable regardless, so LinkFinder reads it.
+
+For every port it reports the timing role - which side hands out time and which takes it,
+something `ip link` cannot tell you - by reading the running `ptp4l` command lines and
+then querying each instance with `pmc`. The domain and the `--uds_address` are taken off
+the command line, because a plain `pmc` talks to domain 0 on the default socket and comes
+back empty on a host running two instances on domain 24.
+
+```
+LOCAL PORT  SWITCH  SWITCH PORT  PTP                 PEER                      CONF
+enp23s0f2   sw-core-1  10GE 1/13    SLAVE dom 24 +0ns   -                         high
+enp23s0f0   -       -            MASTER dom 24 +0ns  198.51.100.11 enp101s0f3  none
+```
+
+On ports LLDP could not resolve it also listens for a few seconds for PTP frames and
+decodes the sender's clock identity. That identity is an EUI-64 of the sender's MAC, so
+when the far end is a machine in the same run it can be named outright - `enp23s0f0 ->
+198.51.100.11 enp101s0f3`, with no switch involved and no LLDP on either side.
+
+**How far the claim goes matters.** A PTP event frame is multicast, so hearing one proves
+the two ports share a layer-2 segment, not that a cable runs between them. A direct cable
+is only called likely when the hearing is one to one in both directions; anything weaker
+is reported as a shared segment, and a clock belonging to no machine we scanned is printed
+as the identity we actually heard. Nothing is ever called proven.
+
+This costs two cheap commands per host and runs by default. `--no-ptp` turns it off.
 
 ## Topology discovery
 
@@ -354,6 +392,9 @@ python tests/test_switchcli.py   # one sample of real output per NOS
 python tests/test_topology.py    # identity, merging, edge confidence
 python tests/test_crawl.py       # loops, depth, limits, scope, failures
 python tests/test_render.py      # the offline HTML page
+python tests/test_port_health.py # verdicts, counter deltas, failure handling
+python tests/test_ptp.py         # daemon state, wire decoding, evidence limits
+python tests/test_netaddr.py     # which addresses are reachable, and printing them
 ```
 
 ## Building the .exe
@@ -374,6 +415,9 @@ A running `LinkFinder-GUI.exe` also has to be closed before PyInstaller can repl
 |---|---|
 | `linkfinder/decode.py` | LLDP + CDP frame decoding, pcap/pcapng readers |
 | `linkfinder/snmp.py` | SNMPv2c (BER, get/getnext/getbulk walks), stdlib only |
+| `linkfinder/netaddr.py` | which addresses we can actually connect to |
+| `linkfinder/ptp.py` | timing role per port, and naming the far end of a dark cable |
+| `linkfinder/port_health.py` | the opt-in switch port status and health read |
 | `linkfinder/sshx.py` | paramiko wrapper, sudo without a pty, `/sys` interface model |
 | `linkfinder/probe_*.py` | one module per access path |
 | `linkfinder/engine.py` | path selection, fallbacks, parallel batch |

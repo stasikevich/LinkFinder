@@ -13,9 +13,12 @@ Copyright (c) 2026 Stas Mitin. SPDX-License-Identifier: MIT
 """
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
+
+from .netaddr import is_reachable_mgmt
 
 from .snmp import SnmpError, as_mac, as_text
 
@@ -85,6 +88,7 @@ class PortHealth:
     usage: str = USAGE_UNKNOWN
     confidence: str = LOW
     reasons: List[str] = field(default_factory=list)
+    notes: List[str] = field(default_factory=list)
     counters: Dict[str, int] = field(default_factory=dict)
     deltas: Dict[str, int] = field(default_factory=dict)
     neighbour: str = ""
@@ -94,6 +98,9 @@ class PortHealth:
 
     @property
     def speed(self) -> str:
+        """A down port still reports a speed; it is not a negotiated one."""
+        if self.oper and self.oper != "up":
+            return ""
         return human_speed(self.speed_mbps)
 
     @property
@@ -107,7 +114,8 @@ class PortHealth:
             "speed_mbps": self.speed_mbps, "speed": self.speed,
             "last_change_seconds": self.last_change_seconds,
             "status": self.status, "usage": self.usage, "confidence": self.confidence,
-            "reasons": list(self.reasons), "counters": dict(self.counters),
+            "reasons": list(self.reasons), "notes": list(self.notes),
+            "counters": dict(self.counters),
             "deltas": dict(self.deltas), "neighbour": self.neighbour,
             "neighbour_port": self.neighbour_port, "fdb_macs": self.fdb_macs,
             "vlan": self.vlan,
@@ -148,6 +156,16 @@ class PortHealthReport:
         }
 
 
+def _walk_raw(client, root: str) -> Dict[int, object]:
+    out: Dict[int, object] = {}
+    for oid, value in client.walk(root):
+        try:
+            out[int(oid.rsplit(".", 1)[-1])] = value
+        except ValueError:
+            continue
+    return out
+
+
 def _walk_ints(client, root: str) -> Dict[int, int]:
     out: Dict[int, int] = {}
     for oid, value in client.walk(root):
@@ -165,15 +183,129 @@ def _walk_text(client, root: str) -> Dict[int, str]:
     return out
 
 
-def read_counters(client) -> Dict[str, Dict[int, int]]:
-    """One walk per counter column; GETBULK keeps that to a few packets."""
+GET_BATCH = 20
+
+
+def _column(client, root: str, indexes: Optional[List[int]]) -> Dict[int, object]:
+    """One IF-MIB column, asked for by index rather than walked.
+
+    Walking is wrong on a switch with thousands of VLAN interfaces: the VLANs
+    occupy the low indexes, the physical ports sit above them, and a walk that
+    stops early returns a table with every real port missing and no hint that
+    anything was cut. Once ifName has told us which indexes exist we can ask for
+    exactly those, which is both correct and far fewer packets.
+    """
+    if indexes is None:
+        return dict(_walk_raw(client, root))
+    out: Dict[int, object] = {}
+    base = root.rstrip(".")
+    for start in range(0, len(indexes), GET_BATCH):
+        chunk = indexes[start:start + GET_BATCH]
+        try:
+            answers = client.get(*["%s.%d" % (base, i) for i in chunk])
+        except SnmpError:
+            continue
+        for oid, value in answers:
+            if value == "__END__" or value is None:
+                continue
+            try:
+                out[int(oid.rsplit(".", 1)[-1])] = value
+            except ValueError:
+                continue
+    return out
+
+
+def _as_ints(raw: Dict[int, object]) -> Dict[int, int]:
+    out: Dict[int, int] = {}
+    for index, value in raw.items():
+        try:
+            out[index] = int(value)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _as_texts(raw: Dict[int, object]) -> Dict[int, str]:
+    return {index: as_text(value) for index, value in raw.items()}
+
+
+def read_counters(client, indexes: Optional[List[int]] = None) -> Dict[str, Dict[int, int]]:
+    """One read per counter column, by index when we know which ports exist."""
     snapshot: Dict[str, Dict[int, int]] = {}
     for label, root in COUNTER_OIDS.items():
         try:
-            snapshot[label] = _walk_ints(client, root)
+            snapshot[label] = _as_ints(_column(client, root, indexes))
         except SnmpError:
             snapshot[label] = {}
     return snapshot
+
+
+TRAILING_NUMBER = re.compile(r"(\d+)\s*$")
+
+
+def lldp_by_ifindex(switch, client, names: Dict[int, str],
+                    descrs: Dict[int, str]) -> Dict[int, object]:
+    """Join the switch's own LLDP table to ifIndex, exactly where we can.
+
+    lldpRemLocalPortNum is an LLDP port number, not an ifIndex. On gear that
+    numbers its physical ports 1000001 upwards while LLDP calls them 1..21, a
+    direct lookup matches nothing and the neighbour column stays empty. Try the
+    exact routes first and fall back to the port number only when it identifies
+    exactly one interface, so a guess can never silently become a fact.
+    """
+    local: Dict[str, str] = {}
+    try:
+        for oid, value in client.walk(OID_LLDP_LOC_PORTID):
+            local[oid.rsplit(".", 1)[-1]] = as_text(value)
+    except Exception:
+        pass
+    by_name = {text: index for index, text in names.items() if text}
+    by_descr = {text: index for index, text in descrs.items() if text}
+    tails: Dict[str, List[int]] = {}
+    for index, text in names.items():
+        match = TRAILING_NUMBER.search(text or "")
+        if match:
+            tails.setdefault(str(int(match.group(1))), []).append(index)
+
+    out: Dict[int, object] = {}
+    try:
+        found = switch.lldp_neighbours()
+    except Exception:
+        return out
+    for nb in found:
+        key = (getattr(nb, "local_iface", "") or "").strip()
+        if not key:
+            continue
+        text = local.get(key, "")
+        index = by_name.get(key) or by_descr.get(key)
+        if index is None and text:
+            index = by_name.get(text) or by_descr.get(text)
+        if index is None and key.isdigit() and int(key) in names:
+            index = int(key)
+        exact = index is not None
+        if index is None and key.isdigit():
+            hits = tails.get(str(int(key)), [])
+            if len(hits) == 1:
+                index = hits[0]
+        if index is None:
+            continue
+        if not exact:
+            setattr(nb, "confidence", "inferred")
+        out[index] = nb
+    return out
+
+
+def is_physical(ifindex: int, types: Dict[int, int], names: Dict[int, str]) -> bool:
+    """Only reject a port when the device positively says it is not one.
+
+    Some switches publish ifType for their VLAN interfaces and nothing at all
+    for the physical ports. Reading a missing type as "not physical" threw away
+    every real port and reported an empty table.
+    """
+    kind = types.get(ifindex)
+    if kind is None:
+        return ifindex in names
+    return kind in PHYSICAL_IFTYPES
 
 
 def classify(port: PortHealth, expect_speed: int = 0) -> PortHealth:
@@ -235,6 +367,32 @@ def classify(port: PortHealth, expect_speed: int = 0) -> PortHealth:
     return port
 
 
+def switches_worth_asking(results=None, explicit=None, targets=None):
+    """Which addresses to ask for port health, best first.
+
+    The original version asked only the scan targets, which is wrong for the
+    common case: you point the tool at a server, it finds the switch that server
+    is plugged into, talks SNMP to it - and then port health went back and asked
+    the server, which is not a switch and never answers. The switch we just
+    found is the one with the ports worth looking at, so it goes first.
+    """
+    out = []
+
+    def add(value):
+        value = (value or "").strip()
+        if value and value not in out and is_reachable_mgmt(value.partition("@")[0]):
+            out.append(value)
+
+    for value in explicit or []:
+        add(value)
+    for result in results or []:
+        for nb in getattr(result, "neighbors", []) or []:
+            add(getattr(nb, "mgmt_ip", ""))
+    for value in targets or []:
+        add(value)
+    return out
+
+
 def collect(switch, interval: float = 3.0, expect_speed: int = 0,
             physical_only: bool = True, sleeper: Callable[[float], None] = time.sleep,
             log: Optional[Callable[[str], None]] = None) -> PortHealthReport:
@@ -249,21 +407,26 @@ def collect(switch, interval: float = 3.0, expect_speed: int = 0,
     client = switch.client
     try:
         names = _walk_text(client, OID_IF_NAME)
-        descrs = _walk_text(client, OID_IF_DESCR)
+        known = sorted(names) if names else None
+        if known is None:
+            descrs = _walk_text(client, OID_IF_DESCR)
+        else:
+            descrs = _as_texts(_column(client, OID_IF_DESCR, known))
         if not names and not descrs:
             report.error = "the device returned no interface table (IF-MIB empty)"
             return report
-        types = _walk_ints(client, OID_IF_TYPE)
-        admin = _walk_ints(client, OID_IF_ADMIN)
-        oper = _walk_ints(client, OID_IF_OPER)
-        high_speed = _walk_ints(client, OID_IF_HIGHSPEED)
-        low_speed = _walk_ints(client, OID_IF_SPEED)
-        last_change = _walk_ints(client, OID_IF_LASTCHANGE)
-        phys: Dict[int, str] = {}
-        for oid, value in client.walk(OID_IF_PHYS):
-            phys[int(oid.rsplit(".", 1)[-1])] = as_mac(value)
+        if known is None:
+            known = sorted(set(list(names) + list(descrs)))
+        types = _as_ints(_column(client, OID_IF_TYPE, known))
+        admin = _as_ints(_column(client, OID_IF_ADMIN, known))
+        oper = _as_ints(_column(client, OID_IF_OPER, known))
+        high_speed = _as_ints(_column(client, OID_IF_HIGHSPEED, known))
+        low_speed = _as_ints(_column(client, OID_IF_SPEED, known))
+        last_change = _as_ints(_column(client, OID_IF_LASTCHANGE, known))
+        phys = {index: as_mac(value)
+                for index, value in _column(client, OID_IF_PHYS, known).items()}
         uptime_before = client.get_one(OID_SYS_UPTIME)
-        first = read_counters(client)
+        first = read_counters(client, known)
     except SnmpError as exc:
         report.error = str(exc)
         return report
@@ -275,20 +438,14 @@ def collect(switch, interval: float = 3.0, expect_speed: int = 0,
     started = time.time()
     sleeper(interval)
     try:
-        second = read_counters(client)
+        second = read_counters(client, known)
         uptime_after = client.get_one(OID_SYS_UPTIME)
     except SnmpError as exc:
         second, uptime_after = {}, uptime_before
         report.error = "second counter read failed: %s" % exc
     report.sampled_seconds = round(time.time() - started, 1)
 
-    neighbours = {}
-    try:
-        for nb in switch.lldp_neighbours():
-            if nb.local_iface:
-                neighbours[nb.local_iface] = nb
-    except Exception:
-        pass
+    neighbours = lldp_by_ifindex(switch, client, names, descrs)
 
     per_port_macs: Dict[int, int] = {}
     try:
@@ -309,7 +466,7 @@ def collect(switch, interval: float = 3.0, expect_speed: int = 0,
 
     now_ticks = uptime_after if isinstance(uptime_after, int) else None
     for ifindex in sorted(set(list(names) + list(descrs))):
-        if physical_only and types and types.get(ifindex) not in PHYSICAL_IFTYPES:
+        if physical_only and not is_physical(ifindex, types, names):
             continue
         port = PortHealth(ifindex=ifindex, name=names.get(ifindex, ""),
                           descr=descrs.get(ifindex, ""), mac=phys.get(ifindex, ""))
@@ -326,10 +483,13 @@ def collect(switch, interval: float = 3.0, expect_speed: int = 0,
             port.counters[label] = after if after is not None else before
             if after is not None:
                 port.deltas[label] = max(0, after - before)
-        nb = neighbours.get(port.name) or neighbours.get(port.descr)
+        nb = neighbours.get(ifindex)
         if nb is not None:
             port.neighbour = nb.switch or nb.chassis_id
             port.neighbour_port = nb.best_port
+            if getattr(nb, "confidence", "") == "inferred":
+                port.notes.append("neighbour matched to this port by port number, "
+                                  "not by an exact name from the device")
         port.fdb_macs = per_port_macs.get(ifindex, 0)
         if ifindex in pvids:
             port.vlan = str(pvids[ifindex])
@@ -386,6 +546,8 @@ def render_detail(port: PortHealth) -> str:
         lines.append("  Neighbor: %s" % port.neighbour)
         if port.neighbour_port:
             lines.append("  Remote port: %s" % port.neighbour_port)
+        for note in port.notes:
+            lines.append("  Note: %s" % note)
     shown = [k for k in FAULT_COUNTERS if k in port.counters]
     if shown:
         lines.append("")

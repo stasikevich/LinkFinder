@@ -13,6 +13,7 @@ import struct
 from typing import Dict, Iterator, List, Optional, Tuple
 
 from .model import Neighbor
+from .netaddr import compress_ipv6
 
 ETH_P_LLDP = 0x88CC
 ETH_P_VLAN = (0x8100, 0x88A8, 0x9100)
@@ -57,7 +58,8 @@ def _ipv4(raw: bytes) -> str:
 
 
 def _ipv6(raw: bytes) -> str:
-    return ":".join("%02x%02x" % (raw[i], raw[i + 1]) for i in range(0, 16, 2))
+    full = ":".join("%02x%02x" % (raw[i], raw[i + 1]) for i in range(0, 16, 2))
+    return compress_ipv6(full)
 
 
 def _id_value(subtype: int, raw: bytes, table: Dict[int, str]) -> Tuple[str, str]:

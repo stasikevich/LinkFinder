@@ -81,21 +81,23 @@ while time.time() < deadline and len(done) < len(socks):
 '''
 
 
-def _capture_script(ifaces: List[str], seconds: int, tool: str) -> str:
+def _capture_script(ifaces: List[str], seconds: int, tool: str,
+                    pcap_filter: str = "", count: int = 5) -> str:
     """One tcpdump/tshark per interface in parallel, results returned base64.
 
     The script always waits the whole window, so taking several frames instead of
     one costs nothing and gives both protocols a chance to show up.
     """
+    pcap_filter = pcap_filter or GROUP_MAC_FILTER
     lines = ["d=$(mktemp -d /tmp/lf.XXXXXX)"]
     for name in ifaces:
         safe = name.replace("/", "_")
         if tool == "tcpdump":
-            cap = ("tcpdump -i %s -s 0 -c 5 -p -U -w $d/%s.pcap %s >/dev/null 2>&1 &"
-                   % (shlex.quote(name), safe, shlex.quote(GROUP_MAC_FILTER)))
+            cap = ("tcpdump -i %s -s 0 -c %d -p -U -w $d/%s.pcap %s >/dev/null 2>&1 &"
+                   % (shlex.quote(name), count, safe, shlex.quote(pcap_filter)))
         else:
-            cap = ("tshark -i %s -c 5 -w $d/%s.pcap -f %s >/dev/null 2>&1 &"
-                   % (shlex.quote(name), safe, shlex.quote(GROUP_MAC_FILTER)))
+            cap = ("tshark -i %s -c %d -w $d/%s.pcap -f %s >/dev/null 2>&1 &"
+                   % (shlex.quote(name), count, safe, shlex.quote(pcap_filter)))
         lines.append(cap)
     lines.append("sleep %d" % seconds)
     lines.append("for p in $d/*.pcap; do [ -s \"$p\" ] || continue; "
@@ -334,9 +336,102 @@ def select_ifaces(ifaces: Dict[str, Iface], target_ip: str, want: Optional[List[
     return [i.name for i in live]
 
 
+PTP_CAPTURE_SECONDS = 4
+PTP_CAPTURE_FRAMES = 25
+
+
+def _probe_ptp(ssh: Ssh, result: TargetResult, ifaces: Dict[str, Iface],
+               chosen: List[str], unresolved: List[str],
+               say: Callable[[str], None]) -> None:
+    """Timing role per port, and the far end of any cable LLDP could not name.
+
+    Reading the daemon state is two cheap commands and happens for every port.
+    The extra capture is only run on ports LLDP left unresolved, because that is
+    where it pays: a fronthaul cable with no switch in it carries PTP and
+    nothing else we can read.
+    """
+    from .ptp import PTP_FILTER, PtpPort, collect_ptp, peers_from_capture
+
+    def run(command: str) -> str:
+        return ssh.run(command, timeout=30)[1]
+
+    try:
+        ports = collect_ptp(run, chosen, say)
+    except Exception as exc:
+        say("  ptp: %s: %s" % (type(exc).__name__, exc))
+        return
+
+    want = [name for name in unresolved if ifaces.get(name)
+            and ifaces[name].carrier == "1"]
+    if want:
+        tool = "tcpdump" if ssh.have("tcpdump") else ("tshark" if ssh.have("tshark") else "")
+        if tool:
+            say("  listening %ds for PTP on %s" % (PTP_CAPTURE_SECONDS, ", ".join(want)))
+            script = _capture_script(want, PTP_CAPTURE_SECONDS, tool,
+                                     pcap_filter=PTP_FILTER, count=PTP_CAPTURE_FRAMES)
+            name_map = {n.replace("/", "_"): n for n in want}
+            try:
+                _rc, out, _err = ssh.sudo("sh -c %s" % shlex.quote(script),
+                                          timeout=PTP_CAPTURE_SECONDS + 60)
+            except Exception as exc:
+                say("  ptp capture failed: %s" % exc)
+                out = ""
+            our_macs = [i.mac for i in ifaces.values() if i.mac]
+            lines = out.splitlines()
+            for i, line in enumerate(lines):
+                if not line.startswith("PCAP ") or i + 1 >= len(lines):
+                    continue
+                name = name_map.get(line[5:].strip(), line[5:].strip())
+                try:
+                    blob = base64.b64decode(lines[i + 1].strip())
+                except Exception:
+                    continue
+                peers = peers_from_capture(blob, our_macs)
+                if not peers:
+                    continue
+                port = ports.setdefault(name, PtpPort(iface=name))
+                port.peers = peers
+                say("    %s: %s" % (name, ", ".join(
+                    "%s (%s)" % (p.label, "/".join(p.messages) or "ptp") for p in peers)))
+
+    active = {name: port for name, port in ports.items() if port.active}
+    if not active:
+        return
+    result.extra.setdefault("ptp", {})
+    for name, port in active.items():
+        result.extra["ptp"][name] = port.to_dict()
+
+
+def attach_ptp(result: TargetResult) -> None:
+    """Hang the PTP findings on the rows, once every row exists.
+
+    This runs after the blank rows for unresolved ports are made, because those
+    are exactly the rows PTP has something to say about.
+    """
+    found = result.extra.get("ptp") or {}
+    if not found:
+        return
+    for nb in result.neighbors:
+        port = found.get(nb.local_iface)
+        if not port:
+            continue
+        nb.extra["ptp"] = port
+        if nb.resolved:
+            continue
+        peers = port.get("peers") or []
+        bits = []
+        if port.get("state") or port.get("role"):
+            bits.append("PTP %s" % (port.get("state") or port.get("role")))
+        if peers:
+            bits.append("hears %s" % ", ".join(
+                p.get("clock_identity") or p.get("mac") or "?" for p in peers))
+        if bits:
+            nb.note = "no LLDP/CDP here, but " + "; ".join(bits)
+
+
 def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
                 want_ifaces: Optional[List[str]] = None, mgmt_only: bool = False,
-                seconds: int = 65, platform: str = "linux",
+                seconds: int = 65, platform: str = "linux", ptp: bool = True,
                 log: Optional[Callable[[str], None]] = None) -> TargetResult:
     say = log or (lambda _m: None)
 
@@ -475,6 +570,9 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
                 return found
             step("raw-sniffer", sniff, only_for=pending)
 
+    if ptp:
+        _probe_ptp(ssh, result, ifaces, chosen, missing(), say)
+
     result.neighbors = prefer_lldp(result.neighbors)
     still = missing()
     heard = {n.local_iface for n in result.neighbors}
@@ -487,6 +585,7 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
         if itf:
             blank.local_mac, blank.local_speed, blank.local_parent = itf.mac, itf.speed, itf.master
         result.neighbors.append(blank)
+    attach_ptp(result)
     result.neighbors.sort(key=lambda n: (0 if n.local_role.startswith("mgmt") else 1,
                                          0 if n.resolved else 1, n.local_iface))
     if still and not result.error:

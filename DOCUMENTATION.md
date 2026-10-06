@@ -114,7 +114,11 @@ Colour carries meaning and nothing else: green for up and healthy, orange for de
 red for down or failed, grey for unknown or disabled.
 
 **Neighbors** - one row per link found on the target: local port, switch, switch address,
-switch port, VLAN, method, confidence.
+switch port, VLAN, **PTP**, **Peer**, method, confidence. Green means LLDP answered,
+amber means it did not but PTP named the far end anyway, grey means nothing was found.
+Selecting a row opens a panel below with that port's MAC and speed, its full PTP state -
+role, domain, clock identity, grandmaster, offset - and, in plain words, how strongly
+the far end is actually established.
 
 **Port Health** - off until you tick **Read SNMP port status / health**; the interval and
 expected-speed boxes stay disabled until then, and nothing extra is read. Once on, each
@@ -162,6 +166,7 @@ window stays responsive throughout: all network work happens on worker threads.
 | `--iface NAME` | Repeatable. Bonds expand to their physical legs. |
 | `--mgmt-only` | Only the interface carrying the target address. |
 | `-t, --seconds N` | Capture window, default 65. |
+| `--no-ptp` | Skip the timing read. On by default; see section 6b. |
 
 ### Switch side
 
@@ -369,6 +374,33 @@ request; with it, the switch port table is read and each port gets a verdict.
 python -m linkfinder 198.51.100.1 --port-health --community <community>
 ```
 
+**Which device is asked.** The switch discovered during the scan is tried first, then
+anything named with `--switch`, then the targets themselves. This matters: point the
+tool at a server and the server is not a switch, so asking it was the one thing
+guaranteed to return nothing.
+
+**Reading the table by index, not by walking it.** `ifName` is walked once to learn
+which interfaces exist, and every other column is then fetched for exactly those
+indexes. A blind walk is wrong on a switch with thousands of VLAN interfaces: the
+VLANs take the low indexes, the physical ports sit above them, and a walk that stops
+early hands back a table with every real port missing and no sign anything was cut.
+
+**A missing `ifType` is not a "no".** Some switches publish `ifType` for their VLAN
+interfaces and nothing at all for the physical ports. A port is only rejected when
+the device positively says it is not a physical one; when the type is absent,
+appearing in `ifName` is enough.
+
+**Joining LLDP to a port.** `lldpRemLocalPortNum` is an LLDP port number, not an
+`ifIndex` - gear that numbers its ports 1000001 upwards calls them 1..21 over LLDP.
+The exact routes are tried first (the interface name, then the local port id, then
+the port number as an index); only if all fail is the port number matched against
+the trailing number of an interface name, and only when that identifies exactly one
+port. A match made that way is labelled as such in the port detail, so an inference
+never reads as a reading.
+
+**A dead port reports no speed.** `ifSpeed` still returns a number when the link is
+down, and it is not a negotiated one.
+
 **What is read**, all standard MIBs, through the SNMP transport discovery already uses:
 IF-MIB (`ifName`, `ifDescr`, `ifType`, `ifAdminStatus`, `ifOperStatus`, `ifSpeed` /
 `ifHighSpeed`, `ifLastChange`, `ifPhysAddress`, `ifInErrors`, `ifOutErrors`,
@@ -422,6 +454,52 @@ Reason:
 If the health read fails while ordinary discovery succeeded, the discovery result is
 still printed and the health section says `UNKNOWN` with the reason. A health failure
 never aborts a scan.
+
+---
+
+## 6b. Timing, and the cable nothing announces
+
+`linkfinder/ptp.py`. Runs by default on Linux targets; `--no-ptp` turns it off.
+
+**Why.** A fronthaul port is normally cabled straight into another server or a radio.
+There is no switch in the path, so no forwarding table knows the MAC, and neither end
+runs lldpd, so there is no LLDP to read. Every rung of the ladder comes back empty
+and the port is reported unresolved. PTP is running on that cable regardless.
+
+**Daemon state, for every port.** `ps` gives the running `ptp4l` command lines; the
+interface, domain, transport and role come straight off them. Each instance is then
+asked with `pmc -u -b 0 -d <domain> -s <uds_address>` for `PORT_DATA_SET` and
+`TIME_STATUS_NP`, which give the port state, our own clock identity, the grandmaster
+and the offset. The domain and socket are not optional decoration: a bare `pmc` talks
+to domain 0 on the default socket and returns nothing on a host running two instances
+on domain 24, which looks exactly like PTP not being configured.
+
+**The wire, for ports LLDP could not resolve.** A separate short capture, filter
+`ether proto 0x88f7 or udp port 319 or udp port 320`, 25 frames or four seconds. It is
+deliberately a second capture rather than an addition to the LLDP filter: PTP at
+`logSyncInterval -4` is sixteen messages a second, and folding it into a five-frame
+LLDP capture would flush out the one frame that capture exists to catch.
+
+**From a clock back to a machine.** The PTPv2 header carries `sourcePortIdentity`, and
+linuxptp builds that identity from the interface MAC by inserting `ff:fe` in the
+middle. Undo that and the identity becomes a MAC; match the MAC against the ports we
+interrogated in the same run and the far end has a name. An identity not built from a
+MAC is left alone rather than turned into a device that does not exist.
+
+**How far the evidence goes.** A PTP event frame is multicast. Hearing one proves a
+shared layer-2 segment, not a cable. The giveaway is arithmetic: if one clock is
+audible from two of our ports, at least one of those is not a direct link.
+
+| What was seen | What is reported |
+|---|---|
+| mutual, one to one in both directions | most likely a direct cable |
+| the clock is heard from several of our ports | same layer-2 segment |
+| the far end hears us but we did not hear it | shared segment, from its side |
+| a clock belonging to no machine we scanned | the identity we heard, no more |
+
+Hearing is recorded in both directions on purpose. A four-second capture samples, so
+one end often catches the other while the reverse comes back empty; without the
+reciprocal entry the same cable would appear and disappear between runs.
 
 ---
 
@@ -609,6 +687,17 @@ Most often the switch has discovery disabled on that port; ask the switch side i
 
 **"no LLDP on this port, and its MAC is not in the forwarding table of ..."** - the
 interface faces a different switch from the ones asked. Add that switch with `--switch`.
+If the port is a fronthaul leg there may be no switch at all; check the PTP and Peer
+columns, which answer that case without LLDP.
+
+**A neighbour shows an address like `fe80::7a9a:18ff:fe19:1234` and is never scanned**
+- that is an IPv6 link-local, the only address that device publishes over LLDP. It is
+valid but not routable: without a zone index there is nowhere to connect to, so the
+crawl does not waste an attempt on it and the row says so instead of reporting the
+device as unreachable. Give the device's real address as a seed, or scan it directly.
+
+**Port health prints "no switch to ask"** - nothing found during the scan published a
+usable management address. Name the switch with `--switch`.
 
 **A BMC answers in the browser but the tool says authentication failed** - it was taken
 down the SSH path. Current builds probe `/redfish/v1` first; if you force `-m ssh` on a
