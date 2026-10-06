@@ -256,6 +256,8 @@ def build_parser() -> argparse.ArgumentParser:
                       help="write a self-contained Cytoscape page here")
     topo.add_argument("--render-topology", nargs=2, metavar=("JSON", "HTML"),
                       help="only render: turn an existing topology JSON into HTML")
+    topo.add_argument("--diff", nargs=2, metavar=("BEFORE", "AFTER"), default=None,
+                      help="compare two topology JSON files and report what moved")
     topo.add_argument("--merge-topology", nargs="+", default=[], metavar="JSON",
                       help="combine several topology files into one site map")
     topo.add_argument("--topology-resume", default="", metavar="JSON",
@@ -451,6 +453,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         source, destination = args.render_topology
         print("topology page written to %s" % render_file(source, destination))
         return 0
+    if args.diff:
+        from .diff import compare_files, render as render_diff
+        before, after = args.diff
+        report = compare_files(before, after)
+        print(render_diff(report))
+        return 0 if report.quiet else 1
     if args.merge_topology:
         return run_merge(args)
     if args.topology:
