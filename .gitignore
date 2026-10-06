@@ -14,4 +14,6 @@ linkfinder.json
 *.topology.json
 *.topology.html
 *topology*.png
+# the documentation screenshots are synthetic and belong in the repo
+!docs/img/*.png
 *.stackdump

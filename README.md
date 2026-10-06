@@ -1,18 +1,94 @@
 # LinkFinder
 
+**Which switch port is this machine plugged into, what is on the other end, and is
+the link actually healthy?**
+
+Point it at an address. It works out how to ask - SSH, Redfish, SNMP, the switch
+itself - gets the answer, checks the two ends against each other, and draws the
+result. Nothing is installed on the target. No agent, no server, no database.
+
+```bash
+linkfinder 198.51.100.10 -u root -p secret
+```
+
+```text
+TARGET         LOCAL PORT   SWITCH       SWITCH PORT             VLAN  VIA              CHECKS        PTP
+-------------  -----------  -----------  ----------------------  ----  ---------------  ------------  ------------------
+198.51.100.10  eno1 [mgmt]  sw-access-1  1/1/13                  100   LLDP/networkctl  -             -
+198.51.100.10  enp23s0f2    sw-core-1    10GigabitEthernet 1/13  -     LLDP/tcpdump     mtu/speed ok  SLAVE dom 24 +0ns
+198.51.100.10  enp23s0f0    -            -                       -     -                -             MASTER dom 24 +0ns
+198.51.100.10  enp23s0f1    -            -                       -     -                -             -
+```
+
+Four cables, four answers. Two went to switches. One is a direct cable to another
+server, found through PTP because there is no LLDP and no switch in the path. One
+is dark, and the row says so rather than being left out.
+
+![Neighbours](docs/img/neighbors.png)
+
+## It draws the site, too
+
+Give it a starting point and it walks outward, then writes a single HTML file you
+can open from disk - no web server, no CDN, no internet.
+
+```bash
+linkfinder --topology 198.51.100.1 -u admin -p secret \
+    --topology-json site.topology.json --topology-html site.topology.html
+```
+
+![Topology](docs/img/topology.png)
+
+A bond is one link on the map, not four unrelated cables. A device nobody can log
+into is still on the map. Line style carries how sure we are.
+
+## And tells you what is wrong with a link
+
+Both ends are compared wherever both ends can be reached - MTU, VLAN, speed, which
+aggregation each side thinks it is in. A verdict needs both sides: one side known
+and the other not is reported UNKNOWN, never as a match and never as a fault.
+
+```text
+MTU    mismatch  9000 / 1500   - one side sends up to 9000, the other accepts 1500
+VLAN   match     84 / 84
+LACP   warn      bond0 / none  - this end is in bond0, the switch port is not in
+                                 any aggregation we can see
+```
+
+Opt in to a port health read and the switch's own counters are sampled twice, so
+only errors that actually moved during the sample count as evidence. Five thousand
+old errors and none new is a healthy port, and it says so.
+
+![Port health](docs/img/port-health.png)
+
+## And whether anything changed since last time
+
+```bash
+linkfinder --diff monday.topology.json tuesday.topology.json
+```
+
+```text
+LINK MOVED:
+  sw-access-1 Eth1/2 - node-a eno1 (was sw-access-1 Eth1/1 - node-a eno1)
+
+DEVICE CHANGED:
+  node-c
+      ptp grandmaster on eno1    020000.fffe.000001 -> 020000.fffe.000077
+```
+
+---
+
 *Idea, design and architecture by Stas Mitin. MIT licensed - see [LICENSE](LICENSE).*
 
-Find which **switch** and which **switch port** every link is plugged into — for any
-system in the lab, not just the two cases the old tools covered.
+Full reference, every GUI field and every flag: **[DOCUMENTATION.md](DOCUMENTATION.md)**.
 
-It replaces and merges:
+## Where it came from
+
+It replaces and merges two narrower tools:
 
 | Old tool | What it did | Where it stopped |
 |---|---|---|
 | `check_port.py` / `LLDP_Checker.exe` | SSH to a Linux host, `tcpdump` LLDP for 60 s on the interface holding the management IP | needed `tcpdump`; one interface only; LLDP only; text parsing; one host per run |
 | `read_ipmi_port.py` | Redfish LLDP from the BMC | Supermicro and HPE only; one host per run |
-
-Full reference, including every GUI field and every flag: **[DOCUMENTATION.md](DOCUMENTATION.md)**.
 
 ## What it does differently
 
