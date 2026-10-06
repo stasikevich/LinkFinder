@@ -565,6 +565,7 @@ def name_peers(results) -> None:
     by_clock = {_own_clock(port): (nb, port) for nb, port in ports if _own_clock(port)}
 
     reciprocal: Dict[int, List[str]] = {}
+    reciprocal_ports: Dict[int, List[List[str]]] = {}
     for key, listeners in heard.items():
         far = by_clock.get(key)
         if far is None:
@@ -575,9 +576,11 @@ def name_peers(results) -> None:
             if host or iface:
                 reciprocal.setdefault(id(far[0]), []).append(
                     ("%s %s" % (host, iface)).strip())
+                reciprocal_ports.setdefault(id(far[0]), []).append([host, iface])
 
     for nb, port in ports:
         labels, best = [], ""
+        placed: List[List[str]] = []
         for raw in port.get("peers") or []:
             peer = PtpPeer(mac=raw.get("mac", ""),
                            clock_identity=raw.get("clock_identity", ""),
@@ -591,6 +594,14 @@ def name_peers(results) -> None:
                 ours = _own_clock(port)
                 mutual = any((p.get("clock_identity") or "").lower() == ours
                              for p in (far[1].get("peers") or []))
+            if name != peer.label:
+                # Keep the device and interface, not only the text: the next
+                # check along wants to look the far port up, and parsing a
+                # display string back into two fields is a trap.
+                seat = index.get(normalise_mac(peer.mac or "")) or index.get(
+                    normalise_mac(clock_identity_to_mac(peer.clock_identity)))
+                if seat and seat[1]:
+                    placed.append([seat[0], seat[1]])
             if name != peer.label and listeners == 1 and mutual:
                 labels.append(name)
                 best = best or "direct"
@@ -599,6 +610,8 @@ def name_peers(results) -> None:
                 best = best or "segment"
             else:
                 labels.append(peer.label)
+        if placed:
+            nb.extra["ptp_peer_ports"] = placed
         best_gm = ""
         for raw in port.get("peers") or []:
             if not raw.get("gm_identity"):
@@ -618,6 +631,9 @@ def name_peers(results) -> None:
                 continue
             nb.extra["ptp_peer"] = ", ".join(others)
             nb.extra["ptp_peer_evidence"] = "heard-by"
+            seats = reciprocal_ports.get(id(nb)) or []
+            if seats:
+                nb.extra["ptp_peer_ports"] = seats
             if not nb.resolved:
                 nb.note = ("no LLDP here; %s hears this port's clock, so they share a "
                            "segment" % ", ".join(others))

@@ -336,6 +336,12 @@ def select_ifaces(ifaces: Dict[str, Iface], target_ip: str, want: Optional[List[
     return [i.name for i in live]
 
 
+def _optic_label(record):
+    from .optics import label
+
+    return label(record) or "module present"
+
+
 PTP_CAPTURE_SECONDS = 4
 PTP_CAPTURE_FRAMES = 25
 
@@ -589,6 +595,14 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
     found_bonds = bonds_from_ifaces(ifaces)
     if found_bonds:
         result.extra["bonds"] = found_bonds
+    if ssh.have("ethtool"):
+        from .optics import collect as collect_optics
+        modules = collect_optics(lambda cmd: ssh.run(cmd, timeout=60)[1], say)
+        if modules:
+            result.extra["optics"] = modules
+            say("  optics: %s"
+                % ", ".join("%s %s" % (name, _optic_label(rec))
+                            for name, rec in sorted(modules.items())))
 
     if ptp:
         _probe_ptp(ssh, result, ifaces, chosen, missing(), say)

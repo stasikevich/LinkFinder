@@ -879,6 +879,17 @@ class App:
         if nb.note:
             lines.append(nb.note)
 
+        module = nb.extra.get("optics")
+        if module:
+            from .optics import diagnostics, label as optic_label
+
+            lines.append("Optic: %s   (%s)" % (optic_label(module) or "unknown",
+                                               diagnostics(module)))
+            if module.get("vendor") or module.get("part"):
+                lines.append("       %s %s %s" % (module.get("vendor", ""),
+                                                  module.get("part", ""),
+                                                  module.get("serial", "")))
+
         checks = nb.extra.get("checks") or {}
         if checks:
             lines.append("")

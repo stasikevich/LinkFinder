@@ -274,6 +274,12 @@ def _finish_results(results: List[TargetResult], opts: Options,
     except Exception as exc:
         if log:
             log("  link checks failed: %s" % exc)
+    try:
+        from .optics import match_optics
+        match_optics(results, log=log)
+    except Exception as exc:
+        if log:
+            log("  optics comparison failed: %s" % exc)
     return results
 
 

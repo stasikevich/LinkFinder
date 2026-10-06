@@ -25,6 +25,7 @@ Invoke-Step "tests: ptp"     { python tests\test_ptp.py       | Select-Object -L
 Invoke-Step "tests: netaddr" { python tests\test_netaddr.py   | Select-Object -Last 1 }
 Invoke-Step "tests: links"   { python tests\test_linkcheck.py  | Select-Object -Last 1 }
 Invoke-Step "tests: diff"    { python tests\test_diff.py       | Select-Object -Last 1 }
+Invoke-Step "tests: optics"  { python tests\test_optics.py     | Select-Object -Last 1 }
 
 $assets = "linkfinder/assets;linkfinder/assets"
 $common = @("--noconfirm", "--onefile", "--clean", "--log-level", "WARN",
