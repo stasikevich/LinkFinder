@@ -100,6 +100,7 @@ def view_from_result(target: str, result: TargetResult) -> DeviceView:
         error=result.error or "",
         sources=[a.method for a in result.attempts if a.ok],
         neighbours=usable,
+        extra=dict(getattr(result, "extra", {}) or {}),
     )
     if not usable and result.error:
         view.reachable = False

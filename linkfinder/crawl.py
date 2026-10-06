@@ -125,7 +125,8 @@ class Crawler:
             self.topology.add_edge(
                 a=device.id, a_iface=nb.local_iface, b=far.id, b_iface=nb.best_port,
                 proto=nb.proto, source=nb.source, reported_by=device.id,
-                vlan=nb.vlan, speed=nb.local_speed)
+                vlan=nb.vlan, speed=nb.local_speed,
+                attrs=(getattr(nb, "extra", {}) or {}).get("checks"))
             if state == STATE_OUT_OF_SCOPE or not mgmt_ip:
                 continue
             if unusable:
@@ -244,6 +245,11 @@ class Crawler:
 
         if self.stop_event.is_set():
             self.stopped_because = self.stopped_because or "stopped on request"
+        try:
+            from .lag import fold
+            fold(self.topology, log=self.say)
+        except Exception as exc:
+            self.say("  lag folding skipped: %s" % exc)
         self.topology.stopped_because = self.stopped_because
         return self.topology
 

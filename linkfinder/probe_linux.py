@@ -581,10 +581,14 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
                 return found
             step("raw-sniffer", sniff, only_for=pending)
 
+    from .lag import bonds_from_ifaces
     from .linkcheck import tagged_vlans
     found_tags = tagged_vlans(ifaces)
     if found_tags:
         result.extra["tagged_vlans"] = found_tags
+    found_bonds = bonds_from_ifaces(ifaces)
+    if found_bonds:
+        result.extra["bonds"] = found_bonds
 
     if ptp:
         _probe_ptp(ssh, result, ifaces, chosen, missing(), say)

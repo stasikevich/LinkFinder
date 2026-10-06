@@ -9,8 +9,10 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from linkfinder.linkcheck import (check_mtu, check_speed, check_vlan, compare,
-                                  describe, problems, summarise, tagged_vlans)
+from linkfinder.lag import bonds_from_ifaces
+from linkfinder.linkcheck import (check_lacp, check_mtu, check_speed, check_vlan,
+                                  compare, describe, problems, summarise,
+                                  tagged_vlans)
 from linkfinder.model import Neighbor
 from linkfinder.sshx import Iface
 from linkfinder.topology import Topology
@@ -87,7 +89,7 @@ attrs = compare(nb, {"mtu": 1500, "pvid": 100, "speed_mbps": 10000})
 check("two faults found", problems(attrs), ["mtu", "vlan"])
 check("the summary names both", summarise(attrs), "mtu mismatch, vlan mismatch")
 check("the good layer is not listed as a problem", "speed" in problems(attrs), False)
-check("every layer appears in the long form", len(describe(attrs)), 3)
+check("every layer appears in the long form", len(describe(attrs)), 4)
 
 clean = compare(nb, {"mtu": 10240, "pvid": 84, "speed_mbps": 10000})
 check("a healthy link lists what was actually checked", summarise(clean),
@@ -101,7 +103,7 @@ check("no remote, no verdict", problems(blind), [])
 check("and nothing claimed as checked", summarise(blind), "")
 check("every layer still present and honest",
       sorted(layer["verdict"] for layer in blind.values()),
-      ["unknown", "unknown", "unknown"])
+      ["unknown"] * 4)
 
 print()
 print("-- the overlays travel on the edge, not as new columns --")
@@ -114,7 +116,7 @@ for layer, fields in compare(nb, {"mtu": 1500, "pvid": 100,
     edge.note(layer, **fields)
 check("the edge knows what is wrong with it", edge.problems, ["mtu", "vlan"])
 check("and it is in the JSON", sorted(edge.to_dict()["attrs"]),
-      ["mtu", "speed", "vlan"])
+      ["lacp", "mtu", "speed", "vlan"])
 
 import json
 again = Topology()
@@ -124,6 +126,93 @@ check("overlays survive a save and a load", carried.problems, ["mtu", "vlan"])
 check("with their detail intact",
       "frames over 1500" in carried.attrs["mtu"]["detail"], True)
 check("a merge does not multiply the edge", len(again.edges), 1)
+
+
+print()
+print("-- LACP: which bundle each end thinks the cable is in --")
+check("neither end bundled is the normal case and says nothing",
+      check_lacp("", "")["verdict"], "unknown")
+check("both ends bundled", check_lacp("bond0", "Po12")["verdict"], "match")
+check("and names both", check_lacp("bond0", "Po12")["detail"],
+      "bond0 on this side, Po12 on the other")
+one_sided = check_lacp("bond0", "")
+check("a bond member landing on a plain port is worth a warning",
+      one_sided["verdict"], "warn")
+check("but only medium confidence - the switch may not publish ifStackTable",
+      one_sided["confidence"], "medium")
+check("the other way round is also a warning",
+      check_lacp("", "Po12")["verdict"], "warn")
+
+print()
+print("-- a bundle is one link on the map, not four --")
+ifaces = {"bond0": Iface(name="bond0"),
+          "eno1": Iface(name="eno1", master="bond0"),
+          "eno2": Iface(name="eno2", master="bond0"),
+          "eno3": Iface(name="eno3")}
+check("members are read off the master links", bonds_from_ifaces(ifaces),
+      {"bond0": ["eno1", "eno2"]})
+check("a host with no bonds yields none", bonds_from_ifaces({"eth0": Iface(name="eth0")}),
+      {})
+
+
+def bundled_topology(members=2, same_remote=True):
+    graph = Topology(seed="198.51.100.1")
+    server = graph.add_node(chassis_id="aa:bb:cc:00:00:09", mgmt_ip="198.51.100.9",
+                            name="srv")
+    server.extra["bonds"] = {"bond0": ["eno%d" % (i + 1) for i in range(members)]}
+    first = graph.add_node(chassis_id="aa:bb:cc:00:00:01", mgmt_ip="198.51.100.1",
+                           name="sw1")
+    second = graph.add_node(chassis_id="aa:bb:cc:00:00:02", mgmt_ip="198.51.100.2",
+                            name="sw2")
+    for i in range(members):
+        far = first if (same_remote or i == 0) else second
+        link = graph.add_edge(server.id, "eno%d" % (i + 1), far.id,
+                              "Eth1/%d" % (i + 1), proto="LLDP",
+                              reported_by=server.id)
+        link.note("lacp", a="bond0", b="Po12")
+    return graph
+
+
+folded = bundled_topology()
+from linkfinder.lag import fold
+check("two members fold into one", fold(folded), 1)
+check("and the graph holds one link", len(folded.edges), 1)
+bundle = list(folded.edges.values())[0]
+check("named by the bond and the port-channel",
+      sorted([bundle.a_iface, bundle.b_iface]), ["Po12", "bond0"])
+check("with the cables listed underneath",
+      bundle.attrs["lacp"]["members"], ["eno1 - Eth1/1", "eno2 - Eth1/2"])
+check("the local ports are kept", bundle.attrs["lacp"]["local_ports"],
+      ["eno1", "eno2"])
+
+alone = Topology(seed="198.51.100.1")
+host = alone.add_node(chassis_id="aa:bb:cc:00:00:09", mgmt_ip="198.51.100.9", name="srv")
+host.extra["bonds"] = {"bond0": ["eno1"]}
+switch = alone.add_node(chassis_id="aa:bb:cc:00:00:01", mgmt_ip="198.51.100.1", name="sw")
+alone.add_edge(host.id, "eno1", switch.id, "Eth1/1", proto="LLDP", reported_by=host.id)
+check("a bond with one live member is not folded away", fold(alone), 0)
+check("and its link is untouched", len(alone.edges), 1)
+
+split = bundled_topology(members=2, same_remote=False)
+check("members landing on different switches are not folded", fold(split), 0)
+check("because that is a fact worth seeing, not a bundle", len(split.edges), 2)
+
+plain = Topology(seed="198.51.100.1")
+p1 = plain.add_node(chassis_id="aa:bb:cc:00:00:09", mgmt_ip="198.51.100.9", name="srv")
+p2 = plain.add_node(chassis_id="aa:bb:cc:00:00:01", mgmt_ip="198.51.100.1", name="sw")
+plain.add_edge(p1.id, "eno1", p2.id, "Eth1/1", proto="LLDP", reported_by=p1.id)
+plain.add_edge(p1.id, "eno2", p2.id, "Eth1/2", proto="LLDP", reported_by=p1.id)
+check("two separate cables with no bond stay two links", fold(plain), 0)
+check("and both remain", len(plain.edges), 2)
+
+carried = bundled_topology()
+for link in carried.edges.values():
+    link.note("mtu", a=1500, b=10240, verdict="match")
+fold(carried)
+kept = list(carried.edges.values())[0]
+check("overlays from the members survive the fold",
+      kept.attrs["mtu"]["verdict"], "match")
+check("folding is safe to run twice", fold(carried), 0)
 
 print()
 if FAILURES:

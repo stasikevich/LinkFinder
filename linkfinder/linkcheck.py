@@ -133,7 +133,32 @@ def check_speed(local: Any, remote: Any) -> Dict[str, Any]:
                          "remote link speed %d Mb/s" % b]}
 
 
-CHECKS = ("mtu", "vlan", "speed")
+def check_lacp(local_bond: Any, remote_aggregator: Any) -> Dict[str, Any]:
+    """Which bundle each end thinks this cable belongs to.
+
+    Neither side having one is the common case and says nothing, so it is not
+    reported at all. One side bundled and the other not is worth seeing: a
+    bond member landing on a plain access port is a real and quiet fault.
+    """
+    a = (local_bond or "").strip()
+    b = (remote_aggregator or "").strip()
+    if not a and not b:
+        return {"verdict": VERDICT_UNKNOWN}
+    if a and b:
+        return {"a": a, "b": b, "verdict": VERDICT_MATCH, "confidence": "high",
+                "detail": "%s on this side, %s on the other" % (a, b)}
+    if a:
+        return {"a": a, "b": None, "verdict": VERDICT_WARN, "confidence": "medium",
+                "detail": "this end is in %s, the switch port is not in any "
+                          "aggregation we can see" % a,
+                "evidence": ["local bond %s" % a,
+                             "no ifStackTable aggregator on the remote port"]}
+    return {"a": None, "b": b, "verdict": VERDICT_WARN, "confidence": "medium",
+            "detail": "the switch port is in %s, this end is not bonded" % b,
+            "evidence": ["remote aggregator %s" % b, "no bond on the local side"]}
+
+
+CHECKS = ("mtu", "vlan", "speed", "lacp")
 
 
 def compare(neighbor, remote: Optional[Dict[str, Any]],
@@ -153,6 +178,8 @@ def compare(neighbor, remote: Optional[Dict[str, Any]],
                            host_tagged),
         "speed": check_speed(getattr(neighbor, "local_speed", ""),
                              remote.get("speed_mbps")),
+        "lacp": check_lacp(getattr(neighbor, "local_parent", ""),
+                           remote.get("aggregator")),
     }
 
 
@@ -257,6 +284,12 @@ def run_link_checks(results, community: str = "public",
             continue
         names = [getattr(nb, "best_port", "") for nb in rows]
         facts[address] = remote_ports(switch, names, log=say)
+        try:
+            from .lag import aggregators
+            for port, bundle in aggregators(switch, names, log=say).items():
+                facts[address].setdefault(port, {})["aggregator"] = bundle
+        except Exception as exc:
+            say("  lag: %s" % exc)
 
     for result in results or []:
         tagged = (getattr(result, "extra", {}) or {}).get("tagged_vlans") or {}
