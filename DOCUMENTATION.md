@@ -495,6 +495,123 @@ never aborts a scan.
 
 ---
 
+## 6a2. Comparing the two ends of a link
+
+`linkfinder/linkcheck.py`, with `optics.py`, `lag.py` and `stp.py` feeding it.
+Runs as part of an ordinary scan; reading the far end costs a handful of SNMP
+GETs for the ports a link actually landed on, not a table walk, so it is not
+opt-in.
+
+Each check is a small pure function over facts already gathered, and writes a
+named layer onto the link rather than a column onto the table:
+
+```
+edge.note("mtu", a=9000, b=1500, verdict="mismatch", confidence="high",
+          evidence=["local MTU 9000", "remote MTU 1500"])
+```
+
+**A verdict needs both sides.** One side known and the other not is UNKNOWN,
+never a match and never a fault. Most of what a tool like this costs is paid in
+false alarms, and a link whose far end could not be reached is the commonest
+case of all.
+
+| Layer | Compared | Flagged when |
+|---|---|---|
+| `mtu` | `/sys/class/net/<if>/mtu` against `ifMtu` | see below |
+| `vlan` | the untagged id each side reports | they differ |
+| `speed` | negotiated rate at each end | they differ |
+| `lacp` | local bond against the switch aggregator | one end bundled, the other not |
+| `stp` | `dot1dStpPortState` for the far port | the port is not forwarding |
+| `optics` | the two transceivers | fibre, speed or wavelength disagree |
+
+### MTU: the two numbers do not mean the same thing
+
+A switch port's MTU is a ceiling - the largest frame it will accept. A host's is
+what it sends. 1500 facing a port set to 10240 is not a fault, it is the normal
+state of almost every network, and reporting it would put a warning on nearly
+every link in the result. The fault is the other way round: a host sending
+frames the switch will not carry.
+
+Between two endpoints there is no ceiling, both sides send, and any difference
+counts. The check takes which case it is in.
+
+This was got wrong first time round, flagged both fronthaul links on the bench,
+and the numbers were right while the verdict was wrong. The test that pins it
+says so in its own name.
+
+### VLAN
+
+Only the untagged id is judged. Whether a port also carries a VLAN as a trunk
+member needs the allowed-VLAN list, which not every device publishes, so the
+host's tagged subinterfaces (`eno1.84` and friends) are recorded as context
+rather than turned into a verdict that cannot be stood behind.
+
+### LACP, and why a bond is one link
+
+`lag.py`. Members are read from the `master` links in `/sys`; the far end's
+port-channel comes from `ifStackTable`, which is plain IF-MIB rather than a
+vendor MIB per platform.
+
+On the map the members are folded into the one logical link they form -
+`bond0 - Po12`, with the individual cables listed in the overlay. Four members
+drawn as four edges says a server has four separate connections to the same
+switch, which is both wrong and the kind of wrong that stops people trusting
+the picture.
+
+Folding happens only on evidence: members of the same bond, landing on the same
+device. Two members on two different switches stay two links, because that is a
+fact worth seeing. A bond with one live member stays one link. The per-device
+tables are untouched and still show one row per cable - that is what you need in
+order to go and unplug something.
+
+### Optics
+
+`optics.py`. `ethtool -m` already decodes the module EEPROM into readable
+fields, so that is parsed rather than SFF-8472 re-implemented. One command per
+host covers every lit port.
+
+Comparison is ordered by how little room there is to argue:
+
+1. **fibre type** - single-mode glass into a multimode module cannot work, and
+   nothing in link state will tell you;
+2. **speed**;
+3. **wavelength**, with 50 nm of slack for vendor rounding;
+4. **form factor** on the same fibre - a warning, not a fault.
+
+Reach is read and shown but never judged. A 10 km optic on a 2 m patch lead is a
+normal thing to find in a lab, and flagging it would train people to ignore the
+column.
+
+The far end has to be a port this run actually looked at, which in practice
+means the direct cables - exactly the links where a mismatch is both likely and
+invisible. A switch nobody can log into keeps its module to itself and the
+verdict stays UNKNOWN.
+
+Digital diagnostics - RX and TX power, temperature - are reported when the
+module has them and said to be absent when it does not. Every optic on the
+bench this was written against is silent about its own power, which is normal
+and must not read as a missing measurement on a failing link.
+
+### Spanning tree
+
+`stp.py`, standard BRIDGE-MIB only. Forwarding is the quiet case. Blocking,
+listening and learning are surfaced - not as faults, but because they answer
+"the cable is fine, so where is the traffic". A redundant topology with STP
+working is not an error.
+
+`dot1dStpPortTable` is indexed by bridge port, not ifIndex;
+`dot1dBasePortIfIndex` bridges the two.
+
+Topology-change counters are recorded and deliberately not judged. Calling a
+tree unstable needs observations over time, which is what the snapshot diff is
+for; guessing from one reading is how a tool earns a reputation for crying wolf.
+
+**Unverified on hardware.** The switch this was written beside runs no spanning
+tree and publishes none of these objects. The decoding is covered by tests
+against a fake bridge and has never been read off a live one.
+
+---
+
 ## 6b. Timing, and the cable nothing announces
 
 `linkfinder/ptp.py` and `linkfinder/ptp_snmp.py`. Runs by default on Linux
@@ -619,6 +736,37 @@ Not built. `show ptp clock` / `parent` / `port` would slot into the existing
 `Dialect` mechanism in `probe_switchcli.py` the same way the LLDP commands do, but
 it needs a login on the switch, and writing parsers against output nobody can run
 would produce code that only looks finished.
+
+---
+
+## 6c. Comparing two scans
+
+`linkfinder/diff.py`.
+
+```bash
+linkfinder --diff monday.topology.json tuesday.topology.json
+```
+
+A topology JSON is already a dated, complete record, so this needs no database
+and no agent - only the two files. Exit code is 0 when nothing changed and 1
+when something did, so it can sit in a loop and only speak up when it matters.
+
+**Matching is the whole problem.** A node id is derived from whatever identity
+was known at the time, so the same switch can be `chassis:00:05:80:...` in one
+file and `ip:198.51.100.1` in the next. Devices are matched on the identities
+they carry, strongest first - chassis, serial, management address, name - so a
+device renamed or readdressed between scans is still the same device. Anything
+that cannot be matched is reported as added or removed rather than quietly
+paired with the wrong one.
+
+**A repatched cable is one event.** A link that moved to the next port is
+reported as a move, naming both the old and the new endpoint, rather than as a
+removal plus an unrelated arrival. Reading it as two is how a short report turns
+into noise.
+
+Beyond devices and links it reports state, name, management addresses, the PTP
+grandmaster per interface, and any link whose verdict changed - a link that was
+MTU-clean on Monday and is not on Tuesday says so by name.
 
 ---
 

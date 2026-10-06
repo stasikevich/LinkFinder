@@ -44,15 +44,26 @@ into is still on the map. Line style carries how sure we are.
 ## And tells you what is wrong with a link
 
 Both ends are compared wherever both ends can be reached - MTU, VLAN, speed, which
-aggregation each side thinks it is in. A verdict needs both sides: one side known
-and the other not is reported UNKNOWN, never as a match and never as a fault.
+aggregation each side thinks it is in, whether spanning tree is forwarding the
+port, and what transceiver is in each socket. A verdict needs both sides: one side
+known and the other not is reported UNKNOWN, never as a match and never as a fault.
 
 ```text
-MTU    mismatch  9000 / 1500   - one side sends up to 9000, the other accepts 1500
-VLAN   match     84 / 84
-LACP   warn      bond0 / none  - this end is in bond0, the switch port is not in
-                                 any aggregation we can see
+MTU     mismatch  9000 / 1500    - one side sends up to 9000, the other accepts 1500
+VLAN    match     84 / 84
+LACP    warn      bond0 / none   - this end is in bond0, the switch port is not in
+                                   any aggregation we can see
+OPTICS  mismatch  10G-LR, 1310 nm / 10G-SR, 850 nm
+                                 - single-mode against multimode, the fibre types
+                                   do not meet
+STP     warn      blocking       - the link is up but spanning tree has it blocking,
+                                   so it carries no traffic
 ```
+
+A switch port's MTU is a ceiling and a host's is a setting, so 1500 facing 10240
+is not a fault. Reach is read and shown but never judged - a 10 km optic on a 2 m
+patch lead is normal. Checks that would fire on healthy networks train people to
+ignore the column.
 
 Opt in to a port health read and the switch's own counters are sampled twice, so
 only errors that actually moved during the sample count as evidence. Five thousand
@@ -489,6 +500,9 @@ python tests/test_render.py      # the offline HTML page
 python tests/test_port_health.py # verdicts, counter deltas, failure handling
 python tests/test_ptp.py         # daemon state, wire decoding, all four rungs
 python tests/test_netaddr.py     # which addresses are reachable, and printing them
+python tests/test_linkcheck.py   # MTU/VLAN/speed/LACP/STP, and bond folding
+python tests/test_optics.py      # reading a module, and comparing two ends
+python tests/test_diff.py        # what moved between two scans
 ```
 
 ## Building the .exe
@@ -512,6 +526,11 @@ A running `LinkFinder-GUI.exe` also has to be closed before PyInstaller can repl
 | `linkfinder/netaddr.py` | which addresses we can actually connect to |
 | `linkfinder/ptp.py` | timing role per port, and naming the far end of a dark cable |
 | `linkfinder/ptp_snmp.py` | the switch side of PTP: RFC 8173, then vendor trees |
+| `linkfinder/linkcheck.py` | comparing the two ends of a link |
+| `linkfinder/optics.py` | transceivers, and whether the two ends match |
+| `linkfinder/lag.py` | bonds and port-channels, folded into one link |
+| `linkfinder/stp.py` | whether the bridge is forwarding the port |
+| `linkfinder/diff.py` | what moved between two saved scans |
 | `linkfinder/port_health.py` | the opt-in switch port status and health read |
 | `linkfinder/sshx.py` | paramiko wrapper, sudo without a pty, `/sys` interface model |
 | `linkfinder/probe_*.py` | one module per access path |
