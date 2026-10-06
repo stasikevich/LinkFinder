@@ -376,6 +376,31 @@ def run_port_health(args, opts, hosts, results=None) -> None:
               "the switch with --switch)" % ", ".join(specs), file=sys.stderr)
 
 
+def run_switch_ptp(args, opts, hosts, results=None) -> None:
+    """Ask each switch found what it says about PTP, where it says anything.
+
+    This is the rung that needs the SNMP community rather than nothing at all,
+    so it only runs over devices already identified as switches, and a device
+    with no PTP objects is reported as exactly that.
+    """
+    from .port_health import switches_worth_asking
+    from .probe_snmp import build_switches
+    from .ptp_snmp import read_switch_ptp_safely, render as render_switch_ptp
+
+    specs = switches_worth_asking(results=results, explicit=args.switch, targets=[])
+    if not specs:
+        return
+    reports = []
+    for switch in build_switches(specs, opts.community):
+        if not switch.identify():
+            continue
+        reports.append(read_switch_ptp_safely(switch))
+    text = render_switch_ptp(reports)
+    if text:
+        print("")
+        print(text)
+
+
 def run_topology(args) -> int:
     """Seed -> crawl -> topology JSON -> optional HTML, in that order."""
     from .crawl import Limits, crawl
@@ -450,6 +475,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         if summary:
             print("\n" + summary, file=sys.stderr)
 
+    if args.ptp:
+        run_switch_ptp(args, opts, targets, results)
     if args.port_health:
         run_port_health(args, opts, targets, results)
 

@@ -350,7 +350,8 @@ def _probe_ptp(ssh: Ssh, result: TargetResult, ifaces: Dict[str, Iface],
     where it pays: a fronthaul cable with no switch in it carries PTP and
     nothing else we can read.
     """
-    from .ptp import PTP_FILTER, PtpPort, collect_ptp, peers_from_capture
+    from .ptp import (PTP_FILTER, PtpPort, collect_ptp, peers_from_capture,
+                      query_segment)
 
     def run(command: str) -> str:
         return ssh.run(command, timeout=30)[1]
@@ -393,6 +394,15 @@ def _probe_ptp(ssh: Ssh, result: TargetResult, ifaces: Dict[str, Iface],
                 port.peers = peers
                 say("    %s: %s" % (name, ", ".join(
                     "%s (%s)" % (p.label, "/".join(p.messages) or "ptp") for p in peers)))
+
+    for name, port in ports.items():
+        if not port.peers:
+            continue
+        domain = port.domain if port.domain >= 0 else port.peers[0].domain
+        found = query_segment(run, name, domain=max(domain, 0), log=say)
+        port.responders = found
+        if found:
+            say("    %s: %d clock(s) answered the segment query" % (name, len(found)))
 
     active = {name: port for name, port in ports.items() if port.active}
     if not active:

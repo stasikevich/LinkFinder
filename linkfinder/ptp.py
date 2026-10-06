@@ -42,6 +42,61 @@ ROLE_FLAGS = (
 
 HEADER_LEN = 34
 ANNOUNCE_GM_OFFSET = HEADER_LEN + 19
+ANNOUNCE_LEN = 64
+TLV_PATH_TRACE = 0x0008
+TLV_ALTERNATE_TIME_OFFSET = 0x0009
+
+# G.8275.1 is the profile this was built against; the values below are the ones
+# that profile actually puts on the wire. Anything else is reported by number
+# rather than guessed at.
+CLOCK_CLASS = {
+    6: "locked to a primary reference",
+    7: "holdover, within spec",
+    13: "locked to an application-specific source",
+    14: "holdover from an application-specific source",
+    52: "holdover, out of spec",
+    58: "holdover, out of spec (app-specific)",
+    135: "boundary clock, holdover within spec",
+    140: "boundary clock, holdover out of spec",
+    150: "boundary clock, degraded A",
+    160: "boundary clock, degraded B",
+    165: "boundary clock, free-running",
+    187: "holdover, out of spec (category 2)",
+    193: "holdover, out of spec (category 3)",
+    248: "default, never synchronised",
+    255: "slave only",
+}
+
+TIME_SOURCE = {
+    0x10: "atomic clock", 0x20: "GNSS", 0x30: "terrestrial radio",
+    0x39: "serial time code", 0x40: "PTP", 0x50: "NTP", 0x60: "hand set",
+    0x90: "other", 0xA0: "internal oscillator",
+}
+
+CLOCK_ACCURACY = {
+    0x17: "1 ns", 0x18: "2.5 ns", 0x19: "10 ns", 0x1A: "25 ns",
+    0x1B: "100 ns", 0x1C: "250 ns", 0x1D: "1 us", 0x1E: "2.5 us",
+    0x1F: "10 us", 0x20: "25 us", 0x21: "100 us", 0x22: "250 us",
+    0x23: "1 ms", 0x24: "2.5 ms", 0x25: "10 ms", 0x26: "25 ms",
+    0x27: "100 ms", 0x28: "250 ms", 0x29: "1 s", 0x2A: "10 s",
+    0x2B: "over 10 s", 0xFE: "unknown",
+}
+
+
+def describe_clock_class(value):
+    """A number nobody remembers, turned into what it means for the clock."""
+    if value is None:
+        return ""
+    known = CLOCK_CLASS.get(value)
+    return "%d (%s)" % (value, known) if known else "%d" % value
+
+
+def normalise_mac(text: str) -> str:
+    """00-05-80-08-35-5B, 0005.8008.355b and 00:05:80:08:35:5b are one address."""
+    digits = re.sub(r"[^0-9a-fA-F]", "", text or "").lower()
+    if len(digits) != 12:
+        return ""
+    return ":".join(digits[i:i + 2] for i in range(0, 12, 2))
 
 
 @dataclass
@@ -53,6 +108,13 @@ class PtpPeer:
     port_number: int = 0
     domain: int = -1
     gm_identity: str = ""
+    gm_class: Optional[int] = None
+    gm_accuracy: Optional[int] = None
+    gm_priority1: Optional[int] = None
+    gm_priority2: Optional[int] = None
+    steps_removed: Optional[int] = None
+    time_source: Optional[int] = None
+    path_trace: List[str] = field(default_factory=list)
     messages: List[str] = field(default_factory=list)
     frames: int = 0
 
@@ -77,11 +139,12 @@ class PtpPort:
     gm_present: Optional[bool] = None
     offset_ns: Optional[int] = None
     peers: List[PtpPeer] = field(default_factory=list)
+    responders: List[Dict[str, Any]] = field(default_factory=list)
     error: str = ""
 
     @property
     def active(self) -> bool:
-        return bool(self.role or self.state or self.peers)
+        return bool(self.role or self.state or self.peers or self.responders)
 
     @property
     def summary(self) -> str:
@@ -106,9 +169,16 @@ class PtpPort:
             "summary": self.summary,
             "port_identity": self.port_identity, "gm_identity": self.gm_identity,
             "gm_present": self.gm_present, "offset_ns": self.offset_ns,
+            "responders": [dict(r) for r in self.responders],
             "peers": [{"mac": p.mac, "clock_identity": p.clock_identity,
                        "port_number": p.port_number, "domain": p.domain,
                        "gm_identity": p.gm_identity, "frames": p.frames,
+                       "gm_class": p.gm_class, "gm_accuracy": p.gm_accuracy,
+                       "gm_priority1": p.gm_priority1,
+                       "gm_priority2": p.gm_priority2,
+                       "steps_removed": p.steps_removed,
+                       "time_source": p.time_source,
+                       "path_trace": list(p.path_trace),
                        "messages": list(p.messages)} for p in self.peers],
             "error": self.error,
         }
@@ -138,6 +208,46 @@ def clock_identity_to_mac(cid: str) -> str:
     return ":".join(octets[i:i + 2] for i in range(0, 12, 2))
 
 
+def path_trace(payload: bytes) -> List[str]:
+    """The clock identities an Announce has passed through, if the TLV is on.
+
+    PATH_TRACE is the one thing in the protocol that hands over the timing
+    topology directly: every boundary clock appends itself, so one frame names
+    the whole chain back to the grandmaster. It is optional, so an empty list
+    means "not enabled", never "no boundary clocks".
+    """
+    out: List[str] = []
+    at = ANNOUNCE_LEN
+    while at + 4 <= len(payload):
+        kind, length = struct.unpack("!HH", payload[at:at + 4])
+        body = payload[at + 4:at + 4 + length]
+        if len(body) < length:
+            break
+        if kind == TLV_PATH_TRACE:
+            for i in range(0, len(body) - 7, 8):
+                out.append(clock_identity(body[i:i + 8]))
+        at += 4 + length + (length % 2)
+    return out
+
+
+def decode_announce(payload: bytes) -> Dict[str, Any]:
+    """Everything an Announce says about the grandmaster and the path to it."""
+    if len(payload) < ANNOUNCE_LEN:
+        return {}
+    quality = payload[48:52]
+    return {
+        "gm_identity": clock_identity(payload[53:61]),
+        "gm_priority1": payload[47],
+        "gm_priority2": payload[52],
+        "gm_class": quality[0],
+        "gm_accuracy": quality[1],
+        "steps_removed": struct.unpack("!H", payload[61:63])[0],
+        "time_source": payload[63],
+        "utc_offset": struct.unpack("!h", payload[44:46])[0],
+        "path_trace": path_trace(payload),
+    }
+
+
 def decode_ptp(payload: bytes) -> Optional[Dict[str, Any]]:
     """Header fields of one PTPv2 message, or None when it is not one."""
     if len(payload) < HEADER_LEN:
@@ -153,9 +263,8 @@ def decode_ptp(payload: bytes) -> Optional[Dict[str, Any]]:
         "port_number": struct.unpack("!H", payload[28:30])[0],
         "gm_identity": "",
     }
-    if msg_type == 0xB and len(payload) >= ANNOUNCE_GM_OFFSET + 8:
-        out["gm_identity"] = clock_identity(
-            payload[ANNOUNCE_GM_OFFSET:ANNOUNCE_GM_OFFSET + 8])
+    if msg_type == 0xB:
+        out.update(decode_announce(payload))
     return out
 
 
@@ -202,8 +311,15 @@ def peers_from_capture(data: bytes, our_macs: Optional[List[str]] = None) -> Lis
         peer.frames += 1
         if header["type"] not in peer.messages:
             peer.messages.append(header["type"])
-        if header["gm_identity"] and not peer.gm_identity:
+        if header.get("gm_identity") and not peer.gm_identity:
             peer.gm_identity = header["gm_identity"]
+            peer.gm_class = header.get("gm_class")
+            peer.gm_accuracy = header.get("gm_accuracy")
+            peer.gm_priority1 = header.get("gm_priority1")
+            peer.gm_priority2 = header.get("gm_priority2")
+            peer.steps_removed = header.get("steps_removed")
+            peer.time_source = header.get("time_source")
+            peer.path_trace = list(header.get("path_trace") or [])
     return sorted(found.values(), key=lambda p: -p.frames)
 
 
@@ -353,26 +469,62 @@ def collect_ptp(run: Callable[[str], str], ifaces: Optional[List[str]] = None,
 
 
 def describe_peer(peer: PtpPeer, known: Optional[Dict[str, Tuple[str, str]]] = None) -> str:
-    """Name the far end if we have scanned it, else say honestly what we heard."""
+    """Name the far end if this run can place it, else say what we actually heard."""
     known = known or {}
-    hit = known.get((peer.mac or "").lower())
+    hit = known.get(normalise_mac(peer.mac or ""))
     if not hit and peer.clock_identity:
-        hit = known.get(clock_identity_to_mac(peer.clock_identity).lower())
+        hit = known.get(normalise_mac(clock_identity_to_mac(peer.clock_identity)))
     if hit:
         host, iface = hit
-        return "%s %s" % (host, iface)
+        return ("%s %s" % (host, iface)).strip()
     return peer.clock_identity or peer.mac or "?"
 
 
+def describe_grandmaster(peer: PtpPeer,
+                         known: Optional[Dict[str, Tuple[str, str]]] = None) -> str:
+    """The grandmaster an Announce named, with its quality and distance."""
+    if not peer.gm_identity:
+        return ""
+    known = known or {}
+    hit = known.get(normalise_mac(clock_identity_to_mac(peer.gm_identity)))
+    name = ("%s %s" % hit).strip() if hit else peer.gm_identity
+    bits = []
+    if peer.gm_class is not None:
+        bits.append("class %s" % describe_clock_class(peer.gm_class))
+    if peer.time_source is not None:
+        bits.append(TIME_SOURCE.get(peer.time_source,
+                                    "source 0x%02x" % peer.time_source))
+    if peer.gm_accuracy is not None and peer.gm_accuracy != 0xFE:
+        bits.append(CLOCK_ACCURACY.get(peer.gm_accuracy,
+                                       "accuracy 0x%02x" % peer.gm_accuracy))
+    if peer.steps_removed:
+        bits.append("%d hop(s) away" % peer.steps_removed)
+    elif peer.steps_removed == 0:
+        bits.append("directly attached")
+    return "%s (%s)" % (name, ", ".join(bits)) if bits else name
+
+
 def known_port_index(results) -> Dict[str, Tuple[str, str]]:
-    """MAC -> (host, interface) for every port we interrogated ourselves."""
+    """MAC -> (device, interface) for everything this run can put a name to.
+
+    Not just our own NICs: the switches found over LLDP count too. A switch
+    acting as boundary clock derives its clock identity from its chassis MAC,
+    which is the same MAC it publishes as its LLDP chassis id - so the
+    grandmaster our servers sync to can be named instead of printed as hex.
+    """
     index: Dict[str, Tuple[str, str]] = {}
     for result in results or []:
-        host = getattr(result, "target", "")
+        host = getattr(result, "device_name", "") or getattr(result, "target", "")
         for nb in getattr(result, "neighbors", []) or []:
-            mac = (getattr(nb, "local_mac", "") or "").lower()
+            mac = normalise_mac(getattr(nb, "local_mac", "") or "")
             if mac:
                 index.setdefault(mac, (host, getattr(nb, "local_iface", "")))
+    for result in results or []:
+        for nb in getattr(result, "neighbors", []) or []:
+            chassis = normalise_mac(getattr(nb, "chassis_id", "") or "")
+            name = getattr(nb, "switch", "") or chassis
+            if chassis and name:
+                index.setdefault(chassis, (name, ""))
     return index
 
 
@@ -443,6 +595,19 @@ def name_peers(results) -> None:
                 best = best or "segment"
             else:
                 labels.append(peer.label)
+        best_gm = ""
+        for raw in port.get("peers") or []:
+            if not raw.get("gm_identity"):
+                continue
+            best_gm = describe_grandmaster(
+                PtpPeer(gm_identity=raw.get("gm_identity"),
+                        gm_class=raw.get("gm_class"),
+                        gm_accuracy=raw.get("gm_accuracy"),
+                        steps_removed=raw.get("steps_removed"),
+                        time_source=raw.get("time_source")), index)
+            break
+        if best_gm:
+            nb.extra["ptp_grandmaster"] = best_gm
         if not labels:
             others = sorted(set(reciprocal.get(id(nb), [])))
             if not others:
@@ -468,3 +633,101 @@ def name_peers(results) -> None:
             role = port.get("state") or port.get("role")
             nb.note = ("no LLDP here; PTP %s, hears %s"
                        % (role or "frames", ", ".join(labels)))
+
+
+RESPONSE_LINE = re.compile(
+    r"^\s+(?P<clock>[0-9a-fA-F.]+)-(?P<port>\d+)\s+seq\s+\d+\s+"
+    r"RESPONSE\s+MANAGEMENT\s+(?P<dataset>[A-Z_0-9]+)")
+
+SEGMENT_DATASETS = ("DEFAULT_DATA_SET", "PARENT_DATA_SET",
+                    "TIME_PROPERTIES_DATA_SET")
+
+
+def parse_pmc_responses(text: str) -> List[Dict[str, Any]]:
+    """Every clock that answered, and what each one said.
+
+    pmc prints one block per responder, so a single query to the segment can
+    come back with several clocks. The header line names the clock and the data
+    set; the indented lines under it are the fields.
+    """
+    out: List[Dict[str, Any]] = []
+    current: Optional[Dict[str, Any]] = None
+    for line in (text or "").splitlines():
+        match = RESPONSE_LINE.match(line)
+        if match:
+            current = {"clock_identity": match.group("clock").lower(),
+                       "port": int(match.group("port")),
+                       "dataset": match.group("dataset"), "fields": {}}
+            out.append(current)
+            continue
+        if current is None or not line.startswith((" ", "\t")):
+            continue
+        field_match = PMC_FIELD.match(line)
+        if field_match:
+            current["fields"].setdefault(field_match.group(1),
+                                         field_match.group(2).strip())
+    return out
+
+
+def _segment_command(iface: str, domain: int, hops: int,
+                     datasets: Tuple[str, ...]) -> str:
+    asks = " ".join(shlex.quote("GET " + d) for d in datasets)
+    return ("timeout 10 pmc -2 -i %s -d %d -b %d %s 2>/dev/null"
+            % (shlex.quote(iface), max(domain, 0), max(hops, 1), asks))
+
+
+def query_segment(run: Callable[[str], str], iface: str, domain: int = 0,
+                  hops: int = 1, datasets: Tuple[str, ...] = SEGMENT_DATASETS,
+                  log: Optional[Callable[[str], None]] = None
+                  ) -> List[Dict[str, Any]]:
+    """Ask the wire itself: who else is a PTP clock on this segment?
+
+    This is the protocol's own management mechanism rather than anything
+    vendor-specific, so it needs no credentials and no SNMP community - the
+    query goes out as a PTP message and whatever implements the responder
+    answers. Implementing it is optional, so silence means "this device does
+    not answer management messages", never "there is no clock there": the
+    passive Announce read already proved otherwise.
+
+    GET only. Nothing here ever changes a clock's configuration.
+    """
+    say = log or (lambda _m: None)
+    try:
+        text = run(_segment_command(iface, domain, hops, datasets))
+    except Exception as exc:
+        say("  ptp: segment query on %s failed: %s" % (iface, exc))
+        return []
+    merged: Dict[str, Dict[str, Any]] = {}
+    for answer in parse_pmc_responses(text):
+        entry = merged.setdefault(answer["clock_identity"],
+                                  {"clock_identity": answer["clock_identity"],
+                                   "port": answer["port"], "datasets": {}})
+        entry["datasets"][answer["dataset"]] = answer["fields"]
+    return list(merged.values())
+
+
+def describe_responder(entry: Dict[str, Any],
+                       known: Optional[Dict[str, Tuple[str, str]]] = None) -> str:
+    """One line per clock that answered the segment query."""
+    known = known or {}
+    clock = entry.get("clock_identity", "")
+    hit = known.get(normalise_mac(clock_identity_to_mac(clock)))
+    name = ("%s %s" % hit).strip() if hit else clock
+    sets = entry.get("datasets") or {}
+    default = sets.get("DEFAULT_DATA_SET") or {}
+    parent = sets.get("PARENT_DATA_SET") or {}
+    bits = []
+    if default.get("slaveOnly") == "1":
+        bits.append("slave only")
+    if default.get("clockClass"):
+        try:
+            bits.append("class %s" % describe_clock_class(int(default["clockClass"])))
+        except ValueError:
+            bits.append("class %s" % default["clockClass"])
+    if default.get("numberPorts"):
+        bits.append("%s port(s)" % default["numberPorts"])
+    gm = parent.get("grandmasterIdentity")
+    if gm:
+        gm_hit = known.get(normalise_mac(clock_identity_to_mac(gm)))
+        bits.append("grandmaster %s" % (("%s %s" % gm_hit).strip() if gm_hit else gm))
+    return "%s (%s)" % (name, ", ".join(bits)) if bits else name

@@ -11,7 +11,10 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from linkfinder.model import Neighbor, TargetResult
-from linkfinder.ptp import (PtpPeer, PtpPort, apply_pmc, clock_identity,
+from linkfinder.ptp import (ANNOUNCE_LEN, PtpPeer, PtpPort, apply_pmc,
+                            clock_identity, describe_clock_class,
+                            describe_grandmaster, describe_responder,
+                            normalise_mac, parse_pmc_responses, query_segment,
                             clock_identity_to_mac, collect_ptp, decode_ptp,
                             describe_peer, known_port_index, name_peers,
                             parse_phc_map, parse_pmc, parse_ptp4l_processes,
@@ -255,6 +258,192 @@ check("a MAC we scanned becomes a host and a port",
 check("one we did not stays the clock identity",
       describe_peer(PtpPeer(clock_identity="aabbcc.fffe.ddeeff"), index),
       "aabbcc.fffe.ddeeff")
+
+
+print()
+print("-- the Announce body, which is where the grandmaster really lives --")
+GM2 = bytes.fromhex("000580fffe08355b")
+
+
+def announce(gm, cls=6, accuracy=0x21, steps=2, source=0x20, p1=128, p2=128,
+             trace=()):
+    body = bytearray(ANNOUNCE_LEN)
+    body[0] = 0x0B
+    body[1] = 0x02
+    body[4] = 24
+    body[20:28] = CLOCK
+    struct.pack_into("!H", body, 28, 1)
+    struct.pack_into("!h", body, 44, 37)
+    body[47] = p1
+    body[48] = cls
+    body[49] = accuracy
+    struct.pack_into("!H", body, 50, 0x4E5D)
+    body[52] = p2
+    body[53:61] = gm
+    struct.pack_into("!H", body, 61, steps)
+    body[63] = source
+    out = bytes(body)
+    if trace:
+        value = b"".join(trace)
+        out += struct.pack("!HH", 0x0008, len(value)) + value
+    return out
+
+
+full = decode_ptp(announce(GM2))
+check("grandmaster identity", full["gm_identity"], "000580.fffe.08355b")
+check("clock class", full["gm_class"], 6)
+check("clock accuracy", full["gm_accuracy"], 0x21)
+check("priority1", full["gm_priority1"], 128)
+check("priority2", full["gm_priority2"], 128)
+check("steps removed", full["steps_removed"], 2)
+check("time source", full["time_source"], 0x20)
+check("utc offset", full["utc_offset"], 37)
+check("no path trace unless the TLV is on", full["path_trace"], [])
+
+traced = decode_ptp(announce(GM2, trace=(GM2, CLOCK)))
+check("path trace lists the chain", traced["path_trace"],
+      ["000580.fffe.08355b", "00e0ed.fffe.f9b9b1"])
+check("a Sync carries none of this", decode_ptp(ptp_message(0x00, 24, CLOCK)).get("gm_class"),
+      None)
+
+print()
+print("-- clock class means something, and says so --")
+check("locked to a primary reference", describe_clock_class(6),
+      "6 (locked to a primary reference)")
+check("free-running boundary clock", describe_clock_class(165),
+      "165 (boundary clock, free-running)")
+check("an unknown class is still reported", describe_clock_class(99), "99")
+check("none means nothing", describe_clock_class(None), "")
+
+print()
+print("-- a switch is a device we can name --")
+check("LLDP separators do not matter", normalise_mac("00-05-80-08-35-5B"),
+      "00:05:80:08:35:5b")
+check("so does the Cisco form", normalise_mac("0005.8008.355b"),
+      "00:05:80:08:35:5b")
+check("rubbish is not a MAC", normalise_mac("not-a-mac"), "")
+
+switch_side = TargetResult(target="198.51.100.10")
+switch_side.device_name = "node-a"
+nb = Neighbor(host="198.51.100.10", local_iface="f2", local_mac="50:7c:6f:85:10:9a",
+              switch="sw-core-1", chassis_id="00-05-80-08-35-5B", proto="LLDP")
+switch_side.neighbors.append(nb)
+index = known_port_index([switch_side])
+check("the switch chassis MAC is in the index",
+      index.get("00:05:80:08:35:5b"), ("sw-core-1", ""))
+check("our own NIC is still there",
+      index.get("50:7c:6f:85:10:9a"), ("node-a", "f2"))
+check("a grandmaster that is the switch gets named, not printed as hex",
+      describe_peer(PtpPeer(clock_identity="000580.fffe.08355b"), index), "sw-core-1")
+
+peer = PtpPeer(clock_identity="507c6f.fffe.851077", gm_identity="000580.fffe.08355b",
+               gm_class=6, gm_accuracy=0x21, steps_removed=2, time_source=0x20)
+told = describe_grandmaster(peer, index)
+check("the grandmaster line names the switch", told.startswith("sw-core-1"), True)
+check("and carries its class", "locked to a primary reference" in told, True)
+check("and the time source", "GNSS" in told, True)
+check("and how far away it is", "2 hop(s) away" in told, True)
+check("nothing to say without an Announce", describe_grandmaster(PtpPeer()), "")
+
+print()
+print("-- asking the segment, which needs no credentials --")
+PMC_SEGMENT = """sending: GET DEFAULT_DATA_SET
+\t507c6f.fffe.851077-1 seq 0 RESPONSE MANAGEMENT DEFAULT_DATA_SET
+\t\ttwoStepFlag             1
+\t\tslaveOnly               1
+\t\tnumberPorts             1
+\t\tclockClass              255
+sending: GET PARENT_DATA_SET
+\t507c6f.fffe.851077-1 seq 1 RESPONSE MANAGEMENT PARENT_DATA_SET
+\t\tgrandmasterIdentity     000580.fffe.08355b
+\t000580.fffe.08355b-3 seq 2 RESPONSE MANAGEMENT PARENT_DATA_SET
+\t\tgrandmasterIdentity     000580.fffe.08355b
+"""
+rows = parse_pmc_responses(PMC_SEGMENT)
+check("one entry per response block", len(rows), 3)
+check("two different clocks answered",
+      len({r["clock_identity"] for r in rows}), 2)
+check("the data set is named", rows[0]["dataset"], "DEFAULT_DATA_SET")
+check("and its fields are captured", rows[0]["fields"]["clockClass"], "255")
+check("the echo line is not a response", parse_pmc_responses("sending: GET X"), [])
+check("silence parses to nothing", parse_pmc_responses(""), [])
+
+answers = query_segment(lambda _c: PMC_SEGMENT, "eth0", domain=24)
+check("responders are merged per clock", len(answers), 2)
+by_clock = {a["clock_identity"]: a for a in answers}
+check("both data sets land on one clock",
+      sorted(by_clock["507c6f.fffe.851077"]["datasets"]),
+      ["DEFAULT_DATA_SET", "PARENT_DATA_SET"])
+line = describe_responder(by_clock["507c6f.fffe.851077"], index)
+check("a responder is described in words", "slave only" in line, True)
+check("and its grandmaster is named", "grandmaster sw-core-1" in line, True)
+
+
+def no_pmc(_command):
+    raise OSError("pmc is not installed")
+
+
+check("a device without pmc is not an error", query_segment(no_pmc, "eth0"), [])
+check("a device that answers nothing is not an error",
+      query_segment(lambda _c: "", "eth0"), [])
+
+print()
+print("-- the switch side over SNMP --")
+from linkfinder.ptp_snmp import PTPBASE, read_switch_ptp_safely, render
+
+
+class FakeAgent:
+    def __init__(self, mib):
+        self.mib = mib
+
+    def walk(self, root, limit=4000):
+        for oid in sorted(self.mib):
+            if oid.startswith(root.rstrip(".") + "."):
+                yield oid, self.mib[oid]
+
+
+class FakePtpSwitch:
+    def __init__(self, mib, name="sw-1"):
+        self.host = "198.51.100.1"
+        self.name = name
+        self.client = FakeAgent(mib)
+
+
+silent = read_switch_ptp_safely(FakePtpSwitch({}))
+check("a switch with no PTP objects is reported as such", silent.supported, False)
+check("and said plainly", "publishes no standard PTP MIB" in silent.summary(), True)
+check("nothing is invented for it", silent.tables, {})
+
+vendor_only = read_switch_ptp_safely(
+    FakePtpSwitch({"1.3.6.1.4.1.9.9.760.1.1.1.0": 1}))
+check("a vendor tree is noticed but not decoded", vendor_only.supported, False)
+check("and named", vendor_only.vendor_trees, ["Cisco CISCO-PTP-MIB"])
+
+standard = read_switch_ptp_safely(FakePtpSwitch({
+    PTPBASE + ".1.1.6.1.3.1.1.1": 6,
+    PTPBASE + ".1.1.6.1.9.1.1.1": b"" + bytes.fromhex("000580fffe08355b"),
+    PTPBASE + ".1.1.5.1.4.1.1.1": b"grandmaster",
+}))
+check("a standard MIB is picked up", standard.supported, True)
+check("and named as the source", standard.source, "PTPBASE-MIB (RFC 8173)")
+check("tables are kept apart", sorted(standard.tables), ["default", "parent"])
+check("a binary value is rendered the way a clock identity is written",
+      standard.tables["default"]["1.9.1.1.1"], "00:05:80:ff:fe:08:35:5b")
+check("the summary counts what was read", "3 object(s)" in standard.summary(), True)
+check("rendering mentions the switch", "sw-1" in render([standard]), True)
+
+
+class ExplodingSwitch:
+    host = "198.51.100.1"
+    name = "sw-boom"
+
+    @property
+    def client(self):
+        raise RuntimeError("agent went away")
+
+
+check("an SNMP blow-up is caught, not propagated",
+      read_switch_ptp_safely(ExplodingSwitch()).error.startswith("RuntimeError"), True)
 
 print()
 if FAILURES:

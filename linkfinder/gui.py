@@ -411,7 +411,8 @@ class App:
         page = ttk.Frame(self.tabs, padding=(14, 12))
         self.tabs.add(page, text="Neighbors")
         self.tree = self._table(page, [
-            ("iface", "Local port", 120), ("switch", "Switch", 130),
+            ("host", "Device", 125),
+            ("iface", "Local port", 115), ("switch", "Switch", 125),
             ("switchip", "Switch IP", 110), ("port", "Switch port", 150),
             ("vlan", "VLAN", 55), ("ptp", "PTP", 130), ("peer", "Peer", 180),
             ("via", "Via", 150), ("conf", "Confidence", 85)])
@@ -624,12 +625,27 @@ class App:
         results, report = [], None
         try:
             results = discover_many(targets, opts, log=self.say)
+            if opts.ptp:
+                self._switch_ptp(targets, opts, results)
             if opts.port_health:
                 report = self._collect_health(targets, opts, results)
         except Exception as exc:
             self.last_error = "%s: %s" % (type(exc).__name__, exc)
             self.say(self.last_error)
         self.root.after(0, lambda: self._finish(results, report))
+
+    def _switch_ptp(self, targets, opts, results=None) -> None:
+        """What each switch says about timing, into the log where it belongs."""
+        from .port_health import switches_worth_asking
+        from .probe_snmp import build_switches
+        from .ptp_snmp import read_switch_ptp_safely
+
+        specs = switches_worth_asking(results=results, explicit=opts.switches,
+                                      targets=[])
+        for switch in build_switches(specs, opts.community):
+            if not switch.identify():
+                continue
+            self.say("  " + read_switch_ptp_safely(switch).summary())
 
     def _collect_health(self, targets, opts, results=None):
         """Ask every switch the scan found, not the server we were pointed at.
@@ -679,6 +695,7 @@ class App:
                 peer = nb.extra.get("ptp_peer") or "-"
                 tag = "ok" if nb.resolved else ("warn" if peer != "-" else "off")
                 item = self.tree.insert("", tk.END, tags=(tag,), values=(
+                    result.device_name or result.target,
                     _local_label(nb), nb.switch or "-", nb.mgmt_ip or "-",
                     nb.best_port or "-", nb.vlan or "-", ptp, peer,
                     ("%s/%s" % (nb.proto, nb.source)) if nb.source else "-", nb.confidence))
@@ -752,7 +769,8 @@ class App:
         nb = self.neighbor_rows.get(selection[0])
         if nb is None:
             return
-        lines = ["Local port: %s" % _local_label(nb)]
+        lines = ["Device: %s" % (nb.host or "-"),
+                 "Local port: %s" % _local_label(nb)]
         if nb.local_mac:
             lines.append("MAC: %s" % nb.local_mac)
         if nb.local_speed:
@@ -779,6 +797,11 @@ class App:
                 lines.append("  Heard: %s from %s (%s)"
                              % (peer.get("clock_identity") or "?", peer.get("mac") or "?",
                                 "/".join(peer.get("messages") or []) or "ptp"))
+        if nb.extra.get("ptp_grandmaster"):
+            lines.append("  Grandmaster: %s" % nb.extra["ptp_grandmaster"])
+        for entry in port.get("responders") or []:
+            lines.append("  Answered the segment query: %s"
+                         % entry.get("clock_identity", "?"))
         if nb.extra.get("ptp_peer"):
             lines.append("")
             lines.append("Far end: %s" % nb.extra["ptp_peer"])
