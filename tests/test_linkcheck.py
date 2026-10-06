@@ -9,6 +9,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from linkfinder.consistency import find as find_disagreements
 from linkfinder.lag import bonds_from_ifaces
 from linkfinder.stp import (OID_STP_DESIGNATED_ROOT, OID_STP_PORT_COST,
                             OID_STP_PORT_ENABLE, OID_STP_PORT_STATE,
@@ -302,6 +303,67 @@ class Exploding:
 
 check("an SNMP blow-up is caught",
       read_stp_safely(Exploding()).error.startswith("RuntimeError"), True)
+
+
+print()
+print("-- when the two ends do not tell the same story --")
+
+
+def two_accounts(switch_port, host_sees):
+    graph = Topology(seed="198.51.100.1")
+    switch = graph.add_node(chassis_id="aa:bb:cc:00:00:01", mgmt_ip="198.51.100.1",
+                            name="sw1")
+    host = graph.add_node(chassis_id="aa:bb:cc:00:00:09", mgmt_ip="198.51.100.9",
+                          name="srv1")
+    graph.add_edge(switch.id, switch_port, host.id, "eno1", proto="LLDP",
+                   reported_by=switch.id)
+    graph.add_edge(host.id, "eno1", switch.id, host_sees, proto="LLDP",
+                   reported_by=host.id)
+    return graph
+
+
+agree = two_accounts("Eth1/17", "Eth1/17")
+check("two ends that agree make one link", len(agree.edges), 1)
+check("and no complaint", find_disagreements(agree), [])
+
+argue = two_accounts("Eth1/17", "Eth1/18")
+found = find_disagreements(argue)
+check("two ends that disagree are caught", len(found), 1)
+check("naming the port that cannot face both", found[0]["iface"], "eno1")
+check("and both claims", found[0]["remotes"], ["Eth1/17", "Eth1/18"])
+check("in words", found[0]["detail"],
+      "srv1 eno1 is reported facing Eth1/17 and Eth1/18 on sw1")
+check("with who said what", len(found[0]["evidence"]), 2)
+check("the switch is quoted", "reported by sw1" in " ".join(found[0]["evidence"]),
+      True)
+check("and so is the host", "reported by srv1" in " ".join(found[0]["evidence"]),
+      True)
+marked = [e for e in argue.edges.values() if e.attrs.get("lldp")]
+check("both candidate links are marked", len(marked), 2)
+check("as a mismatch", marked[0].attrs["lldp"]["verdict"], "mismatch")
+check("which puts them on the problem list", "lldp" in marked[0].problems, True)
+
+single = Topology(seed="198.51.100.1")
+one = single.add_node(chassis_id="aa:bb:cc:00:00:01", mgmt_ip="198.51.100.1", name="sw1")
+two = single.add_node(chassis_id="aa:bb:cc:00:00:09", mgmt_ip="198.51.100.9", name="srv1")
+single.add_edge(one.id, "Eth1/17", two.id, "eno1", proto="LLDP", reported_by=one.id)
+check("one account is not a disagreement", find_disagreements(single), [])
+
+many = Topology(seed="198.51.100.1")
+sw_a = many.add_node(chassis_id="aa:bb:cc:00:00:01", mgmt_ip="198.51.100.1", name="sw1")
+srv = many.add_node(chassis_id="aa:bb:cc:00:00:09", mgmt_ip="198.51.100.9", name="srv1")
+many.add_edge(srv.id, "eno1", sw_a.id, "Eth1/1", proto="LLDP", reported_by=srv.id)
+many.add_edge(srv.id, "eno2", sw_a.id, "Eth1/2", proto="LLDP", reported_by=srv.id)
+check("two cables to the same switch are not a disagreement",
+      find_disagreements(many), [])
+
+vague = Topology(seed="198.51.100.1")
+v1 = vague.add_node(chassis_id="aa:bb:cc:00:00:01", mgmt_ip="198.51.100.1", name="sw1")
+v2 = vague.add_node(chassis_id="aa:bb:cc:00:00:09", mgmt_ip="198.51.100.9", name="srv1")
+vague.add_edge(v1.id, "Eth1/17", v2.id, "eno1", proto="LLDP", reported_by=v1.id)
+vague.add_edge(v2.id, "eno1", v1.id, "?", proto="FDB", reported_by=v2.id)
+check("an unnamed far port is not evidence of a conflict",
+      find_disagreements(vague), [])
 
 print()
 if FAILURES:

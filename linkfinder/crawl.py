@@ -246,6 +246,11 @@ class Crawler:
         if self.stop_event.is_set():
             self.stopped_because = self.stopped_because or "stopped on request"
         try:
+            from .consistency import find as find_disagreements
+            find_disagreements(self.topology, log=self.say)
+        except Exception as exc:
+            self.say("  consistency check skipped: %s" % exc)
+        try:
             from .lag import fold
             fold(self.topology, log=self.say)
         except Exception as exc:
