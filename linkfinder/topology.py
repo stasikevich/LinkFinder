@@ -35,6 +35,16 @@ STATE_RANK = {
 }
 
 CONFIDENCE_INFERRED = "inferred"
+
+VERDICT_MATCH = "match"
+VERDICT_MISMATCH = "mismatch"
+VERDICT_UNKNOWN = "unknown"
+VERDICT_WARN = "warn"
+
+# Only these put a link on the problem list; "unknown" is an absence of
+# evidence, not a fault, and saying otherwise would cry wolf on every link
+# where we could only reach one end.
+BAD_VERDICTS = (VERDICT_MISMATCH, VERDICT_WARN)
 CONFIDENCE_REPORTED = "reported"
 CONFIDENCE_CONFIRMED = "confirmed"
 
@@ -155,6 +165,7 @@ class Edge:
     reported_by: List[str] = field(default_factory=list)
     vlan: str = ""
     speed: str = ""
+    attrs: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     first_seen: str = ""
     last_seen: str = ""
 
@@ -166,6 +177,26 @@ class Edge:
             return CONFIDENCE_REPORTED
         return CONFIDENCE_INFERRED
 
+    @property
+    def problems(self) -> List[str]:
+        """Which overlays came back with a verdict worth showing."""
+        return sorted(name for name, layer in self.attrs.items()
+                      if (layer or {}).get("verdict") in BAD_VERDICTS)
+
+    def note(self, layer: str, **fields: Any) -> Dict[str, Any]:
+        """Record one overlay on this link - VLAN, MTU, LACP, STP, optics.
+
+        One physical link stays one edge; everything we learn about it goes
+        into a named layer beside the others. Without this each new check
+        would have added its own column to Edge, and the renderer would have
+        needed a new case for every one of them.
+        """
+        layer_data = self.attrs.setdefault(layer, {})
+        for key, value in fields.items():
+            if value is not None and value != "":
+                layer_data[key] = value
+        return layer_data
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "id": self.id, "a": self.a, "a_iface": self.a_iface,
@@ -173,6 +204,8 @@ class Edge:
             "protos": list(self.protos), "sources": list(self.sources),
             "reported_by": list(self.reported_by), "confidence": self.confidence,
             "vlan": self.vlan, "speed": self.speed,
+            "attrs": {k: dict(v) for k, v in self.attrs.items()},
+            "problems": list(self.problems),
             "first_seen": self.first_seen, "last_seen": self.last_seen,
         }
 
@@ -337,7 +370,8 @@ class Topology:
 
     def add_edge(self, a: str, a_iface: str, b: str, b_iface: str, proto: str = "",
                  source: str = "", reported_by: str = "", vlan: str = "",
-                 speed: str = "") -> Edge:
+                 speed: str = "",
+                 attrs: Optional[Dict[str, Dict[str, Any]]] = None) -> Edge:
         a, b = self.resolve(a), self.resolve(b)
         key = edge_key(a, a_iface, b, b_iface)
         stamp = now_stamp()
@@ -353,6 +387,8 @@ class Topology:
                                   [self.resolve(reported_by)] if reported_by else [])
         edge.vlan = _best(edge.vlan, vlan)
         edge.speed = _best(edge.speed, speed)
+        for layer, fields in (attrs or {}).items():
+            edge.note(layer, **fields)
         edge.last_seen = _latest(edge.last_seen, stamp)
         return edge
 
@@ -374,6 +410,8 @@ class Topology:
             existing.reported_by = _union(existing.reported_by, edge.reported_by)
             existing.vlan = _best(existing.vlan, edge.vlan)
             existing.speed = _best(existing.speed, edge.speed)
+            for layer, fields in edge.attrs.items():
+                existing.note(layer, **fields)
             existing.first_seen = _earliest(existing.first_seen, edge.first_seen)
             existing.last_seen = _latest(existing.last_seen, edge.last_seen)
         self.edges = rebuilt
@@ -429,7 +467,8 @@ class Topology:
             for proto in protos:
                 edge = self.add_edge(a, raw.get("a_iface") or "", b, raw.get("b_iface") or "",
                                      proto=proto, vlan=raw.get("vlan") or "",
-                                     speed=raw.get("speed") or "")
+                                     speed=raw.get("speed") or "",
+                                     attrs=raw.get("attrs") or None)
             if edge is None:
                 continue
             edge.sources = _union(edge.sources, raw.get("sources") or [])

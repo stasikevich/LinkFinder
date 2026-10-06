@@ -25,6 +25,7 @@ from .snmp import SnmpError, as_mac, as_text
 OID_SYS_UPTIME = "1.3.6.1.2.1.1.3.0"
 OID_IF_DESCR = "1.3.6.1.2.1.2.2.1.2"
 OID_IF_TYPE = "1.3.6.1.2.1.2.2.1.3"
+OID_IF_MTU = "1.3.6.1.2.1.2.2.1.4"
 OID_IF_SPEED = "1.3.6.1.2.1.2.2.1.5"
 OID_IF_PHYS = "1.3.6.1.2.1.2.2.1.6"
 OID_IF_ADMIN = "1.3.6.1.2.1.2.2.1.7"
@@ -83,6 +84,7 @@ class PortHealth:
     admin: str = ""
     oper: str = ""
     speed_mbps: int = 0
+    mtu: int = 0
     last_change_seconds: Optional[float] = None
     status: str = STATUS_UNKNOWN
     usage: str = USAGE_UNKNOWN
@@ -112,6 +114,7 @@ class PortHealth:
             "ifindex": self.ifindex, "name": self.name, "descr": self.descr,
             "mac": self.mac, "admin": self.admin, "oper": self.oper,
             "speed_mbps": self.speed_mbps, "speed": self.speed,
+            "mtu": self.mtu,
             "last_change_seconds": self.last_change_seconds,
             "status": self.status, "usage": self.usage, "confidence": self.confidence,
             "reasons": list(self.reasons), "notes": list(self.notes),
@@ -418,6 +421,7 @@ def collect(switch, interval: float = 3.0, expect_speed: int = 0,
         if known is None:
             known = sorted(set(list(names) + list(descrs)))
         types = _as_ints(_column(client, OID_IF_TYPE, known))
+        mtus = _as_ints(_column(client, OID_IF_MTU, known))
         admin = _as_ints(_column(client, OID_IF_ADMIN, known))
         oper = _as_ints(_column(client, OID_IF_OPER, known))
         high_speed = _as_ints(_column(client, OID_IF_HIGHSPEED, known))
@@ -473,6 +477,7 @@ def collect(switch, interval: float = 3.0, expect_speed: int = 0,
         port.admin = ADMIN_STATES.get(admin.get(ifindex), "")
         port.oper = OPER_STATES.get(oper.get(ifindex), "")
         port.speed_mbps = high_speed.get(ifindex) or int(low_speed.get(ifindex, 0) / 1000000)
+        port.mtu = mtus.get(ifindex, 0)
         if now_ticks is not None and ifindex in last_change:
             port.last_change_seconds = max(0.0, (now_ticks - last_change[ifindex]) / 100.0)
         for label in COUNTER_OIDS:
@@ -537,6 +542,8 @@ def render_detail(port: PortHealth) -> str:
              "Link: %s" % (port.oper or "unknown").upper()]
     if port.speed:
         lines.append("Speed: %s" % port.speed)
+    if port.mtu:
+        lines.append("MTU: %d" % port.mtu)
     lines.append("Usage: %s" % port.usage)
     lines.append("Health: %s" % port.status)
     lines.append("Confidence: %s" % port.confidence.upper())

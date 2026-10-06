@@ -168,6 +168,24 @@ is only called likely when the hearing is one to one in both directions; anythin
 is reported as a shared segment, and a clock belonging to no machine we scanned is printed
 as the identity we actually heard. Nothing is ever called proven.
 
+It also asks the switch, in the order of how little cooperation each route needs.
+The Announce frames are read passively and cost nothing; the protocol's own
+management messages (`pmc`) are a question anyone on the segment may ask, with no
+login and no community; and SNMP RFC 8173 PTPBASE-MIB is tried where the device
+publishes it. Whichever answers is named, and a device that stays silent on one
+route is not assumed silent on the others.
+
+That is how a switch gets named rather than printed as a number. A boundary clock
+builds its clock identity from the same chassis MAC it publishes over LLDP, so a
+grandmaster already on the map can be matched to it - `000580.fffe.08355b` becomes
+the switch your servers were plugged into all along, with its clock class, time
+source and distance in hops beside it.
+
+Support for the SNMP route is genuinely patchy. A switch that publishes nothing is
+reported as publishing nothing, never as broken, and the passive read keeps
+working regardless. The SNMP route is covered by tests but has not yet been run
+against hardware that implements the MIB.
+
 This costs two cheap commands per host and runs by default. `--no-ptp` turns it off.
 
 ## Topology discovery
@@ -393,7 +411,7 @@ python tests/test_topology.py    # identity, merging, edge confidence
 python tests/test_crawl.py       # loops, depth, limits, scope, failures
 python tests/test_render.py      # the offline HTML page
 python tests/test_port_health.py # verdicts, counter deltas, failure handling
-python tests/test_ptp.py         # daemon state, wire decoding, evidence limits
+python tests/test_ptp.py         # daemon state, wire decoding, all four rungs
 python tests/test_netaddr.py     # which addresses are reachable, and printing them
 ```
 
@@ -417,6 +435,7 @@ A running `LinkFinder-GUI.exe` also has to be closed before PyInstaller can repl
 | `linkfinder/snmp.py` | SNMPv2c (BER, get/getnext/getbulk walks), stdlib only |
 | `linkfinder/netaddr.py` | which addresses we can actually connect to |
 | `linkfinder/ptp.py` | timing role per port, and naming the far end of a dark cable |
+| `linkfinder/ptp_snmp.py` | the switch side of PTP: RFC 8173, then vendor trees |
 | `linkfinder/port_health.py` | the opt-in switch port status and health read |
 | `linkfinder/sshx.py` | paramiko wrapper, sudo without a pty, `/sys` interface model |
 | `linkfinder/probe_*.py` | one module per access path |

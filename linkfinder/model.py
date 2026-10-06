@@ -23,6 +23,7 @@ class Neighbor:
     local_speed: str = UNKNOWN       # "10000Mb/s" / "25G"
     local_role: str = UNKNOWN        # physical / bond-slave / bond / mgmt
     local_parent: str = UNKNOWN      # bond0 when this iface is a slave
+    local_mtu: str = UNKNOWN
 
     # Remote side (the answer)
     switch: str = UNKNOWN            # system name, else chassis id

@@ -343,6 +343,14 @@ check("the grandmaster line names the switch", told.startswith("sw-core-1"), Tru
 check("and carries its class", "locked to a primary reference" in told, True)
 check("and the time source", "GNSS" in told, True)
 check("and how far away it is", "2 hop(s) away" in told, True)
+check("accuracy 0x21 is 100 ns, not 100 us - a thousandfold difference",
+      "100 ns" in told, True)
+check("an accuracy code we do not encode stays a code",
+      "accuracy 0x1b" in describe_grandmaster(
+          PtpPeer(gm_identity="000580.fffe.08355b", gm_accuracy=0x1B)), True)
+check("unknown accuracy is not reported at all",
+      "accuracy" in describe_grandmaster(
+          PtpPeer(gm_identity="000580.fffe.08355b", gm_accuracy=0xFE)), False)
 check("nothing to say without an Announce", describe_grandmaster(PtpPeer()), "")
 
 print()

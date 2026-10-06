@@ -38,6 +38,7 @@ class Iface:
     physical: bool = False
     master: str = ""
     carrier: str = ""
+    mtu: str = ""
     lowers: List[str] = field(default_factory=list)
     addrs: List[str] = field(default_factory=list)
 
@@ -214,6 +215,7 @@ for d in /sys/class/net/*; do
   st=$(cat "$d/operstate" 2>/dev/null)
   sp=$(cat "$d/speed" 2>/dev/null)
   car=$(cat "$d/carrier" 2>/dev/null)
+  mtu=$(cat "$d/mtu" 2>/dev/null)
   phy=0; [ -e "$d/device" ] && phy=1
   mas=""; if [ -L "$d/master" ]; then m=$(readlink "$d/master"); mas=${m##*/}; fi
   low=""
@@ -221,7 +223,7 @@ for d in /sys/class/net/*; do
     [ -e "$l" ] || continue
     b=${l##*/lower_}; low="$low,$b"
   done
-  echo "IF|$n|$mac|$st|$sp|$phy|$mas|$car|${low#,}"
+  echo "IF|$n|$mac|$st|$sp|$phy|$mas|$car|${low#,}|$mtu"
 done
 ip -o addr show 2>/dev/null | awk '{print "ADDR|" $2 "|" $4}'
 """
@@ -237,7 +239,8 @@ def parse_ifaces(text: str) -> Dict[str, Iface]:
                 name=name, mac=parts[2], operstate=parts[3],
                 speed=(parts[4] + "Mb/s" if parts[4].isdigit() and parts[4] != "-1" else ""),
                 physical=parts[5] == "1", master=parts[6], carrier=parts[7],
-                lowers=[x for x in parts[8].split(",") if x])
+                lowers=[x for x in parts[8].split(",") if x],
+                mtu=parts[9] if len(parts) > 9 else "")
         elif parts[0] == "ADDR" and len(parts) >= 3:
             name = parts[1].split("@")[0]
             if name in out:

@@ -253,20 +253,35 @@ def discover_one(target: str, opts: Options, log: Optional[Callable[[str], None]
     return result
 
 
-def _name_ptp_peers(results: List[TargetResult]) -> List[TargetResult]:
-    """A clock heard on one host is often a port on another host in the run."""
+def _finish_results(results: List[TargetResult], opts: Options,
+                    log: Optional[Callable[[str], None]] = None
+                    ) -> List[TargetResult]:
+    """Everything that can only be decided once every target is in.
+
+    A clock heard on one host is often a port on another host in the run,
+    and a link can only be compared end to end after both ends are known.
+    Neither may take the discovery down with it.
+    """
     try:
         from .ptp import name_peers
         name_peers(results)
-    except Exception:
-        pass
+    except Exception as exc:
+        if log:
+            log("  naming PTP peers failed: %s" % exc)
+    try:
+        from .linkcheck import run_link_checks
+        run_link_checks(results, community=opts.community, log=log)
+    except Exception as exc:
+        if log:
+            log("  link checks failed: %s" % exc)
     return results
 
 
 def discover_many(targets: List[str], opts: Options,
                   log: Optional[Callable[[str], None]] = None) -> List[TargetResult]:
     if len(targets) == 1:
-        return _name_ptp_peers([discover_one(targets[0], opts, log=log)])
+        return _finish_results([discover_one(targets[0], opts, log=log)],
+                               opts, log=log)
     say = log or (lambda _m: None)
     buffers: Dict[str, List[str]] = {t: [] for t in targets}
     results: Dict[str, TargetResult] = {}
@@ -287,7 +302,7 @@ def discover_many(targets: List[str], opts: Options,
                 results[target] = failed
             for line in buffers[target]:
                 say(line)
-    return _name_ptp_peers([results[t] for t in targets])
+    return _finish_results([results[t] for t in targets], opts, log=say)
 
 
 def expand_targets(values: List[str], targets_file: str = "") -> List[str]:

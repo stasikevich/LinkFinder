@@ -482,6 +482,7 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
             if itf:
                 nb.local_mac, nb.local_speed = itf.mac, itf.speed
                 nb.local_parent = itf.master
+                nb.local_mtu = itf.mtu
             nb.local_role = role_of(nb.local_iface)
             result.add(nb)
             added += 1
@@ -580,6 +581,11 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
                 return found
             step("raw-sniffer", sniff, only_for=pending)
 
+    from .linkcheck import tagged_vlans
+    found_tags = tagged_vlans(ifaces)
+    if found_tags:
+        result.extra["tagged_vlans"] = found_tags
+
     if ptp:
         _probe_ptp(ssh, result, ifaces, chosen, missing(), say)
 
@@ -594,6 +600,7 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
                          confidence="none", note="probed, no LLDP/CDP frame received")
         if itf:
             blank.local_mac, blank.local_speed, blank.local_parent = itf.mac, itf.speed, itf.master
+            blank.local_mtu = itf.mtu
         result.neighbors.append(blank)
     attach_ptp(result)
     result.neighbors.sort(key=lambda n: (0 if n.local_role.startswith("mgmt") else 1,

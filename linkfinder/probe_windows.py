@@ -47,13 +47,15 @@ def probe_windows_local(result: TargetResult, seconds: int = 65,
     say = log or (lambda _m: None)
     result.kind = "windows"
     started = time.time()
-    rc, _out = _run_local("pktmon --version", 15)
+    rc, _out = _run_local("where pktmon", 15)
     if rc != 0:
-        result.error = "pktmon is not available (needs Windows 10 / Server 2019 or later)"
+        result.error = ("pktmon is not on this machine (it ships with Windows 10 / "
+                        "Server 2019 and later)")
         return result
-    rc, out = _run_local("net session", 10)
+    rc, _out = _run_local("net session", 10)
     if rc != 0:
-        result.error = "pktmon needs an elevated prompt - run this as Administrator"
+        result.error = ("pktmon is installed but its driver refuses a normal user - "
+                        "run LinkFinder from an Administrator prompt")
         return result
 
     workdir = tempfile.mkdtemp(prefix="linkfinder-")

@@ -459,7 +459,20 @@ never aborts a scan.
 
 ## 6b. Timing, and the cable nothing announces
 
-`linkfinder/ptp.py`. Runs by default on Linux targets; `--no-ptp` turns it off.
+`linkfinder/ptp.py` and `linkfinder/ptp_snmp.py`. Runs by default on Linux
+targets; `--no-ptp` turns the whole thing off.
+
+Four rungs, ordered by how little cooperation each needs from the device being
+asked. Every one reports which rung answered, and silence on one rung is never
+read as an answer from another: a switch that ignores management messages is
+still emitting Announce, and the passive read has already proved it is there.
+
+| Rung | How | Needs |
+|---|---|---|
+| 0 | Announce frames read off the wire | nothing |
+| 1 | the protocol's own management messages, via `pmc` | nothing |
+| 2 | SNMP: RFC 8173 PTPBASE-MIB, then vendor trees | the community |
+| 3 | per-NOS CLI `show ptp ...` | switch login (not built) |
 
 **Why.** A fronthaul port is normally cabled straight into another server or a radio.
 There is no switch in the path, so no forwarding table knows the MAC, and neither end
@@ -500,6 +513,74 @@ audible from two of our ports, at least one of those is not a direct link.
 Hearing is recorded in both directions on purpose. A four-second capture samples, so
 one end often catches the other while the reverse comes back empty; without the
 reciprocal entry the same cable would appear and disappear between runs.
+
+### Rung 0: what an Announce actually carries
+
+Only the grandmaster identity was read at first, which threw away most of the
+message. The whole body is now decoded: `grandmasterPriority1` and `2`,
+`clockClass`, `clockAccuracy`, `stepsRemoved`, `timeSource`, the UTC offset, and
+the **PATH_TRACE TLV**.
+
+`clockClass` is the one worth knowing. 6 means the clock is locked to a primary
+reference; 7 is holdover still within spec; 165 is a boundary clock running free;
+255 is slave-only. A grandmaster that quietly slid from 6 to 165 is the difference
+between a healthy fronthaul and one about to drop cells, and nothing in `ip link`
+or LLDP will tell you. Values outside the G.8275.1 set are printed as numbers
+rather than guessed at.
+
+`stepsRemoved` is how many boundary clocks away the grandmaster is, and PATH_TRACE
+names each one it crossed - the timing topology, handed over by the protocol. The
+TLV is optional, so an empty path trace means "not enabled", never "no boundary
+clocks in the way".
+
+**Naming a switch from its clock.** A boundary clock derives its clock identity
+from its chassis MAC, and that is the same MAC it publishes as its LLDP chassis
+id. Matching clock identities against the switches already on the map - not only
+against our own NICs - is what turns `000580.fffe.08355b` into a switch name. On
+the bench that identity belonged to the switch the servers were plugged into the
+whole time.
+
+### Rung 1: asking the segment, with no credentials
+
+PTP carries its own management protocol - GET, SET and COMMAND messages over the
+same transport as the timing itself. `pmc -2 -i <iface> -d <domain> -b 1 'GET
+DEFAULT_DATA_SET'` puts the question on the wire and every clock on the segment
+that implements the responder answers, boundary clocks included. No SNMP, no
+login, nothing configured in advance.
+
+LinkFinder only ever sends GET. There is no code path here that can change a
+clock's configuration, which matters because the same mechanism could.
+
+Implementing the responder is optional and plenty of switches skip it. Measured on
+the bench: linuxptp answered in full over the wire, while the switch in the middle
+produced not one management frame in ten seconds. That is reported as "did not
+answer", not as "has no PTP" - rung 0 had already shown it was the grandmaster.
+
+### Rung 2: asking the switch over SNMP
+
+`linkfinder/ptp_snmp.py`, using the community discovery already has. This is the
+only rung that can see what a bystander cannot: which of the switch's own ports is
+taking time in, how long it has been in holdover, what it would fall back to.
+
+RFC 8173 defines PTPBASE-MIB at `1.3.6.1.2.1.241`; the twelve tables under
+`.1.1` are walked and whatever answers is kept. If none of them do, a short probe
+looks for a vendor tree worth naming - Cisco `1.3.6.1.4.1.9.9.760`, Juniper,
+Arista, Nokia - and reports that one exists without pretending to decode it.
+
+Support is patchy enough that deciding whether there is anything there is the
+first job. The bench switch publishes no PTP objects, no vendor tree and no
+sysORTable, and is reported as exactly that.
+
+**This rung is tested against a fake agent only.** Nothing in the lab it was
+written in implements the MIB, so it has never been run against hardware that
+does. Treat its output as unproven until it has been.
+
+### Rung 3: the switch CLI
+
+Not built. `show ptp clock` / `parent` / `port` would slot into the existing
+`Dialect` mechanism in `probe_switchcli.py` the same way the LLDP commands do, but
+it needs a login on the switch, and writing parsers against output nobody can run
+would produce code that only looks finished.
 
 ---
 

@@ -74,12 +74,13 @@ TIME_SOURCE = {
 }
 
 CLOCK_ACCURACY = {
-    0x17: "1 ns", 0x18: "2.5 ns", 0x19: "10 ns", 0x1A: "25 ns",
-    0x1B: "100 ns", 0x1C: "250 ns", 0x1D: "1 us", 0x1E: "2.5 us",
-    0x1F: "10 us", 0x20: "25 us", 0x21: "100 us", 0x22: "250 us",
-    0x23: "1 ms", 0x24: "2.5 ms", 0x25: "10 ms", 0x26: "25 ms",
-    0x27: "100 ms", 0x28: "250 ms", 0x29: "1 s", 0x2A: "10 s",
-    0x2B: "over 10 s", 0xFE: "unknown",
+    0x20: "25 ns", 0x21: "100 ns", 0x22: "250 ns",
+    0x23: "1 us", 0x24: "2.5 us", 0x25: "10 us", 0x26: "25 us",
+    0x27: "100 us", 0x28: "250 us",
+    0x29: "1 ms", 0x2A: "2.5 ms", 0x2B: "10 ms", 0x2C: "25 ms",
+    0x2D: "100 ms", 0x2E: "250 ms",
+    0x2F: "1 s", 0x30: "10 s", 0x31: "over 10 s",
+    0xFE: "unknown",
 }
 
 
@@ -546,8 +547,11 @@ def name_peers(results) -> None:
     """
     index = known_port_index(results)
     ports: List[Tuple[Any, Dict[str, Any]]] = []
+    owner: Dict[int, str] = {}
     for result in results or []:
+        name = getattr(result, "device_name", "") or getattr(result, "target", "")
         for nb in getattr(result, "neighbors", []) or []:
+            owner[id(nb)] = name
             port = (getattr(nb, "extra", {}) or {}).get("ptp")
             if port:
                 ports.append((nb, port))
@@ -566,7 +570,7 @@ def name_peers(results) -> None:
         if far is None:
             continue
         for nb, _port in listeners:
-            host = getattr(nb, "host", "")
+            host = owner.get(id(nb)) or getattr(nb, "host", "")
             iface = getattr(nb, "local_iface", "")
             if host or iface:
                 reciprocal.setdefault(id(far[0]), []).append(

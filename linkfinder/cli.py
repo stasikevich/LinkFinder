@@ -27,6 +27,12 @@ def _local_label(nb) -> str:
     return name
 
 
+def _checks_cell(nb) -> str:
+    from .linkcheck import summarise
+
+    return summarise(nb.extra.get("checks") or {}) or "-"
+
+
 COLUMNS = [
     ("target", "TARGET", lambda n: n.host),
     ("iface", "LOCAL PORT", lambda n: _local_label(n)),
@@ -36,6 +42,7 @@ COLUMNS = [
     ("desc", "PORT DESC", lambda n: n.port_desc or "-"),
     ("vlan", "VLAN", lambda n: n.vlan or "-"),
     ("via", "VIA", lambda n: "%s/%s" % (n.proto, n.source) if n.source else "-"),
+    ("checks", "CHECKS", lambda n: _checks_cell(n)),
     ("ptp", "PTP", lambda n: (n.extra.get("ptp") or {}).get("summary") or "-"),
     ("peer", "PEER", lambda n: n.extra.get("ptp_peer") or "-"),
     ("conf", "CONF", lambda n: n.confidence),
@@ -54,7 +61,7 @@ def render_table(results: List[TargetResult], wide: bool = False) -> str:
     keys = [k for k, _h, _g in COLUMNS]
     if not wide:
         drop = {"desc", "note"}
-        for optional in ("ptp", "peer"):
+        for optional in ("checks", "ptp", "peer"):
             column = keys.index(optional)
             if all(row[column] == "-" for row in rows):
                 drop.add(optional)

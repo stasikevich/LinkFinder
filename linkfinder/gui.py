@@ -761,7 +761,11 @@ class App:
         self.card_neighbor.set("Note", best.note or "-")
 
     def _show_neighbor_detail(self, _event=None) -> None:
-        """The table says what; this says how we know, which is the part that matters."""
+        """The answer first, then how it was reached.
+
+        The conclusion used to sit under eight lines of mechanical detail, which
+        put the one line worth reading below the fold of the panel.
+        """
         selection = self.tree.selection()
         self.neighbor_detail.delete(1.0, tk.END)
         if not selection:
@@ -769,47 +773,45 @@ class App:
         nb = self.neighbor_rows.get(selection[0])
         if nb is None:
             return
-        lines = ["Device: %s" % (nb.host or "-"),
-                 "Local port: %s" % _local_label(nb)]
-        if nb.local_mac:
-            lines.append("MAC: %s" % nb.local_mac)
-        if nb.local_speed:
-            lines.append("Speed: %s" % nb.local_speed)
-        if nb.resolved:
-            lines.append("")
-            lines.append("Switch: %s" % (nb.switch or "-"))
-            lines.append("Switch port: %s" % (nb.best_port or "-"))
-            lines.append("Learned from: %s/%s" % (nb.proto or "-", nb.source or "-"))
         port = nb.extra.get("ptp") or {}
-        if port:
-            lines.append("")
-            lines.append("PTP:")
-            for label, key in (("Role", "role"), ("State", "state"),
-                               ("Transport", "transport"), ("Clock", "port_identity"),
-                               ("Grandmaster", "gm_identity")):
-                if port.get(key):
-                    lines.append("  %s: %s" % (label, port[key]))
-            if port.get("domain", -1) >= 0:
-                lines.append("  Domain: %s" % port["domain"])
-            if port.get("offset_ns") is not None:
-                lines.append("  Offset: %+d ns" % port["offset_ns"])
-            for peer in port.get("peers") or []:
-                lines.append("  Heard: %s from %s (%s)"
-                             % (peer.get("clock_identity") or "?", peer.get("mac") or "?",
-                                "/".join(peer.get("messages") or []) or "ptp"))
-        if nb.extra.get("ptp_grandmaster"):
-            lines.append("  Grandmaster: %s" % nb.extra["ptp_grandmaster"])
-        for entry in port.get("responders") or []:
-            lines.append("  Answered the segment query: %s"
-                         % entry.get("clock_identity", "?"))
+        about = [bit for bit in (nb.local_mac, nb.local_speed) if bit]
+        lines = ["%s on %s%s" % (_local_label(nb), nb.host or "-",
+                                 "   (%s)" % ", ".join(about) if about else "")]
+
+        if nb.resolved:
+            lines.append("Switch: %s - %s   [%s/%s]"
+                         % (nb.switch or "-", nb.best_port or "-",
+                            nb.proto or "-", nb.source or "-"))
         if nb.extra.get("ptp_peer"):
-            lines.append("")
             lines.append("Far end: %s" % nb.extra["ptp_peer"])
             lines.append("Evidence: %s" % EVIDENCE.get(
                 nb.extra.get("ptp_peer_evidence", ""), "heard on this port"))
+        if nb.extra.get("ptp_grandmaster"):
+            lines.append("Grandmaster: %s" % nb.extra["ptp_grandmaster"])
         if nb.note:
-            lines.append("")
             lines.append(nb.note)
+
+        if port:
+            bits = []
+            for key in ("role", "state", "transport"):
+                if port.get(key):
+                    bits.append(str(port[key]))
+            if port.get("domain", -1) >= 0:
+                bits.append("domain %s" % port["domain"])
+            if port.get("offset_ns") is not None:
+                bits.append("offset %+d ns" % port["offset_ns"])
+            if port.get("port_identity"):
+                bits.append("clock %s" % port["port_identity"])
+            lines.append("")
+            lines.append("PTP: %s" % ", ".join(bits) if bits else "PTP: running")
+            for peer in port.get("peers") or []:
+                lines.append("  heard %s from %s (%s)"
+                             % (peer.get("clock_identity") or "?",
+                                peer.get("mac") or "?",
+                                "/".join(peer.get("messages") or []) or "ptp"))
+            for entry in port.get("responders") or []:
+                lines.append("  %s answered the segment query"
+                             % entry.get("clock_identity", "?"))
         self.neighbor_detail.insert(tk.END, "\n".join(lines))
 
     def _present_health(self, reports) -> None:
