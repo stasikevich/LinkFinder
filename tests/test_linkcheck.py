@@ -10,7 +10,15 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from linkfinder.lag import bonds_from_ifaces
-from linkfinder.linkcheck import (check_lacp, check_mtu, check_speed, check_vlan,
+from linkfinder.stp import (OID_STP_DESIGNATED_ROOT, OID_STP_PORT_COST,
+                            OID_STP_PORT_ENABLE, OID_STP_PORT_STATE,
+                            OID_STP_PROTOCOL, OID_STP_TIME_SINCE_CHANGE,
+                            OID_STP_TOP_CHANGES, PORT_STATE)
+from linkfinder.stp import check as check_stp
+from linkfinder.stp import read as read_stp
+from linkfinder.stp import read_safely as read_stp_safely
+from linkfinder.linkcheck import (CHECKS, check_lacp, check_mtu, check_speed,
+                                  check_vlan,
                                   compare, describe, problems, summarise,
                                   tagged_vlans)
 from linkfinder.model import Neighbor
@@ -89,7 +97,7 @@ attrs = compare(nb, {"mtu": 1500, "pvid": 100, "speed_mbps": 10000})
 check("two faults found", problems(attrs), ["mtu", "vlan"])
 check("the summary names both", summarise(attrs), "mtu mismatch, vlan mismatch")
 check("the good layer is not listed as a problem", "speed" in problems(attrs), False)
-check("every layer appears in the long form", len(describe(attrs)), 4)
+check("every layer appears in the long form", len(describe(attrs)), len(CHECKS))
 
 clean = compare(nb, {"mtu": 10240, "pvid": 84, "speed_mbps": 10000})
 check("a healthy link lists what was actually checked", summarise(clean),
@@ -103,7 +111,7 @@ check("no remote, no verdict", problems(blind), [])
 check("and nothing claimed as checked", summarise(blind), "")
 check("every layer still present and honest",
       sorted(layer["verdict"] for layer in blind.values()),
-      ["unknown"] * 4)
+      ["unknown"] * len(CHECKS))
 
 print()
 print("-- the overlays travel on the edge, not as new columns --")
@@ -116,7 +124,7 @@ for layer, fields in compare(nb, {"mtu": 1500, "pvid": 100,
     edge.note(layer, **fields)
 check("the edge knows what is wrong with it", edge.problems, ["mtu", "vlan"])
 check("and it is in the JSON", sorted(edge.to_dict()["attrs"]),
-      ["lacp", "mtu", "speed", "vlan"])
+      sorted(CHECKS))
 
 import json
 again = Topology()
@@ -213,6 +221,87 @@ kept = list(carried.edges.values())[0]
 check("overlays from the members survive the fold",
       kept.attrs["mtu"]["verdict"], "match")
 check("folding is safe to run twice", fold(carried), 0)
+
+
+print()
+print("-- spanning tree: a cable that is fine and carries nothing --")
+check("forwarding is the quiet case", check_stp({"state": "forwarding"})["verdict"],
+      "match")
+blocked = check_stp({"state": "blocking"})
+check("blocking is surfaced, because it answers 'why no traffic'",
+      blocked["verdict"], "warn")
+check("and explains itself",
+      "carries no traffic" in blocked["detail"], True)
+check("listening too", check_stp({"state": "listening"})["verdict"], "warn")
+check("a disabled port says so", "disabled" in check_stp({"state": "disabled"})["detail"],
+      True)
+check("a broken port says that instead",
+      "broken" in check_stp({"state": "broken"})["detail"], True)
+check("no state is not a verdict", check_stp(None)["verdict"], "unknown")
+check("every MIB value has a word", sorted(PORT_STATE.values()),
+      ["blocking", "broken", "disabled", "forwarding", "learning", "listening"])
+
+
+class FakeBridge:
+    """A switch that publishes BRIDGE-MIB, which the bench one does not."""
+
+    def __init__(self, mib, walks, bridge_map=None):
+        self.host = "198.51.100.1"
+        self.name = "sw-1"
+        self._mib = mib
+        self._walks = walks
+        self._bridge = bridge_map or {}
+        self.client = self
+
+    def get_one(self, oid):
+        return self._mib.get(oid)
+
+    def walk(self, root, limit=4000):
+        for index, value in sorted((self._walks.get(root) or {}).items()):
+            yield "%s.%d" % (root, index), value
+
+    def bridge_to_ifindex(self):
+        return self._bridge
+
+
+MIB = {OID_STP_PROTOCOL: 3, OID_STP_TOP_CHANGES: 7,
+       OID_STP_TIME_SINCE_CHANGE: 150000,
+       OID_STP_DESIGNATED_ROOT: b"8000001122334455"}
+WALKS = {OID_STP_PORT_STATE: {1: 5, 2: 2, 3: 1},
+         OID_STP_PORT_ENABLE: {1: 1, 2: 1, 3: 2},
+         OID_STP_PORT_COST: {1: 2000, 2: 2000, 3: 0}}
+
+tree = read_stp(FakeBridge(MIB, WALKS, {1: 1001, 2: 1002, 3: 1003}))
+check("a bridge that runs STP says so", tree.running, True)
+check("the protocol is named", tree.protocol, "IEEE 802.1D")
+check("topology changes are counted", tree.topology_changes, 7)
+check("and timed in seconds, not ticks", tree.seconds_since_change, 1500.0)
+check("bridge ports are mapped onto ifIndex", sorted(tree.ports),
+      [1001, 1002, 1003])
+check("the forwarding one", tree.ports[1001]["state"], "forwarding")
+check("the blocked one", tree.ports[1002]["state"], "blocking")
+check("the disabled one", tree.ports[1003]["enabled"], False)
+check("the summary counts what is not forwarding",
+      "1 not forwarding" in tree.summary(), True)
+
+quiet = read_stp(FakeBridge({}, {}))
+check("a bridge with no spanning tree is not an error", quiet.running, False)
+check("and says so in words",
+      "runs no spanning tree" in quiet.summary(), True)
+check("with no ports invented", quiet.ports, {})
+
+
+class Exploding:
+    host = "198.51.100.1"
+    name = "sw-boom"
+
+    @property
+    def client(self):
+        raise RuntimeError("agent went away")
+
+
+check("an SNMP blow-up is caught",
+      read_stp_safely(Exploding()).error.startswith("RuntimeError"), True)
 
 print()
 if FAILURES:

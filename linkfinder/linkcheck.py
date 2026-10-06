@@ -158,7 +158,16 @@ def check_lacp(local_bond: Any, remote_aggregator: Any) -> Dict[str, Any]:
             "evidence": ["remote aggregator %s" % b, "no bond on the local side"]}
 
 
-CHECKS = ("mtu", "vlan", "speed", "lacp")
+def _check_stp(port):
+    """Only a port the bridge actually told us about gets a spanning-tree layer."""
+    if not port:
+        return {"verdict": VERDICT_UNKNOWN}
+    from .stp import check as check_stp
+
+    return check_stp(port)
+
+
+CHECKS = ("mtu", "vlan", "speed", "lacp", "stp")
 
 
 def compare(neighbor, remote: Optional[Dict[str, Any]],
@@ -180,6 +189,7 @@ def compare(neighbor, remote: Optional[Dict[str, Any]],
                              remote.get("speed_mbps")),
         "lacp": check_lacp(getattr(neighbor, "local_parent", ""),
                            remote.get("aggregator")),
+        "stp": _check_stp(remote.get("stp")),
     }
 
 
@@ -284,6 +294,14 @@ def run_link_checks(results, community: str = "public",
             continue
         names = [getattr(nb, "best_port", "") for nb in rows]
         facts[address] = remote_ports(switch, names, log=say)
+        try:
+            from .stp import read_safely as read_stp
+            tree = read_stp(switch, log=say)
+            if tree.running:
+                for port in facts[address].values():
+                    port["stp"] = tree.ports.get(port.get("ifindex"))
+        except Exception as exc:
+            say("  stp: %s" % exc)
         try:
             from .lag import aggregators
             for port, bundle in aggregators(switch, names, log=say).items():
