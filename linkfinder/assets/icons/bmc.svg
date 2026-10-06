@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="10 8 44 50" width="44" height="50" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<rect x="5" y="11" width="54" height="14" rx="2.4" fill="#ffffff" stroke="__ACCENT__" stroke-width="2.2"/>
+<circle cx="12" cy="18" r="2.0" fill="__ACCENT__" fill-opacity="0.9"/>
+<circle cx="18" cy="18" r="2.0" fill="__ACCENT__" fill-opacity="0.35"/>
+<path d="M36 14.5L36 21.5" stroke="__ACCENT__" stroke-width="1.6" stroke-opacity="0.4"/>
+<path d="M41 14.5L41 21.5" stroke="__ACCENT__" stroke-width="1.6" stroke-opacity="0.4"/>
+<path d="M46 14.5L46 21.5" stroke="__ACCENT__" stroke-width="1.6" stroke-opacity="0.4"/>
+<path d="M51 14.5L51 21.5" stroke="__ACCENT__" stroke-width="1.6" stroke-opacity="0.4"/>
+<rect x="20" y="33" width="24" height="22" rx="3" fill="#ffffff" stroke="__ACCENT__" stroke-width="2.3"/>
+<rect x="26" y="39" width="12" height="10" rx="1.5" fill="__ACCENT__" fill-opacity="0.5"/>
+<path d="M20 38L14 38" stroke="__ACCENT__" stroke-width="2" stroke-opacity="0.75"/>
+<path d="M44 38L50 38" stroke="__ACCENT__" stroke-width="2" stroke-opacity="0.75"/>
+<path d="M20 45L14 45" stroke="__ACCENT__" stroke-width="2" stroke-opacity="0.75"/>
+<path d="M44 45L50 45" stroke="__ACCENT__" stroke-width="2" stroke-opacity="0.75"/>
+<path d="M20 52L14 52" stroke="__ACCENT__" stroke-width="2" stroke-opacity="0.75"/>
+<path d="M44 52L50 52" stroke="__ACCENT__" stroke-width="2" stroke-opacity="0.75"/>
+<path d="M32 25L32 33" stroke="__ACCENT__" stroke-width="2" stroke-opacity="0.5"/>
+</svg>

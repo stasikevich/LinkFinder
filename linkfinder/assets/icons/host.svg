@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 9 52 46" width="52" height="46" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<rect x="9" y="12.0" width="46" height="12" rx="2.2" fill="#ffffff" stroke="__ACCENT__" stroke-width="2.2"/>
+<circle cx="15" cy="18.0" r="2.0" fill="__ACCENT__" fill-opacity="0.9"/>
+<circle cx="21" cy="18.0" r="2.0" fill="__ACCENT__" fill-opacity="0.35"/>
+<path d="M32 15.0L32 21.0" stroke="__ACCENT__" stroke-width="1.6" stroke-opacity="0.4"/>
+<path d="M37 15.0L37 21.0" stroke="__ACCENT__" stroke-width="1.6" stroke-opacity="0.4"/>
+<path d="M42 15.0L42 21.0" stroke="__ACCENT__" stroke-width="1.6" stroke-opacity="0.4"/>
+<path d="M47 15.0L47 21.0" stroke="__ACCENT__" stroke-width="1.6" stroke-opacity="0.4"/>
+<rect x="9" y="26.0" width="46" height="12" rx="2.2" fill="#ffffff" stroke="__ACCENT__" stroke-width="2.2"/>
+<circle cx="15" cy="32.0" r="2.0" fill="__ACCENT__" fill-opacity="0.9"/>
+<circle cx="21" cy="32.0" r="2.0" fill="__ACCENT__" fill-opacity="0.35"/>
+<path d="M32 29.0L32 35.0" stroke="__ACCENT__" stroke-width="1.6" stroke-opacity="0.4"/>
+<path d="M37 29.0L37 35.0" stroke="__ACCENT__" stroke-width="1.6" stroke-opacity="0.4"/>
+<path d="M42 29.0L42 35.0" stroke="__ACCENT__" stroke-width="1.6" stroke-opacity="0.4"/>
+<path d="M47 29.0L47 35.0" stroke="__ACCENT__" stroke-width="1.6" stroke-opacity="0.4"/>
+<rect x="9" y="40.0" width="46" height="12" rx="2.2" fill="#ffffff" stroke="__ACCENT__" stroke-width="2.2"/>
+<circle cx="15" cy="46.0" r="2.0" fill="__ACCENT__" fill-opacity="0.9"/>
+<circle cx="21" cy="46.0" r="2.0" fill="__ACCENT__" fill-opacity="0.35"/>
+<path d="M32 43.0L32 49.0" stroke="__ACCENT__" stroke-width="1.6" stroke-opacity="0.4"/>
+<path d="M37 43.0L37 49.0" stroke="__ACCENT__" stroke-width="1.6" stroke-opacity="0.4"/>
+<path d="M42 43.0L42 49.0" stroke="__ACCENT__" stroke-width="1.6" stroke-opacity="0.4"/>
+<path d="M47 43.0L47 49.0" stroke="__ACCENT__" stroke-width="1.6" stroke-opacity="0.4"/>
+</svg>

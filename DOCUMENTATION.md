@@ -478,12 +478,36 @@ never aborts a scan.
 
 ### Topology HTML
 
-One self-contained file. Both the graph data and `cytoscape.min.js` are embedded, because
-a page opened from disk may not fetch a sibling file and must not need the network.
-Features: zoom, pan, draggable nodes, four layouts, a filter box, colour and shape per
-device kind, line style per link confidence, interface names at each end of every link,
-and a panel showing every field of whatever you click. If the scan was cut short, the
-header says so.
+One self-contained file. The graph data, the device drawings and `cytoscape.min.js` are
+all embedded, because a page opened from disk may not fetch a sibling file and must not
+need the network.
+
+Features: zoom, pan, draggable nodes, four layouts, a filter box, line style per link
+confidence, interface names at each end of every link, and a panel showing every field of
+whatever you click. If the scan was cut short, the header says so.
+
+Each node is drawn as the equipment it is - a rack switch with a port grid, a stack of
+server units, a router, a management board, an access point, a desk phone, or a dashed
+box with a question mark for an unidentified device. That leaves the border free to carry
+state alone: black scanned, red unreachable, dashed and faded for anything never opened.
+Unticking **device icons** reverts to the plain shapes, which redraw faster on a very
+large map; the data behind both is identical.
+
+The drawings live in `linkfinder/assets/icons/`, one SVG per kind, each cropped by its
+`viewBox` to its own content and carrying explicit `width`/`height`. The size attributes
+are not decoration - without an intrinsic size the browser reports a zero-sized image and
+Cytoscape silently drops the icon at any zoom other than 1.
+
+`icon_uris()` in `render_topology.py` reads each file, substitutes the kind colour for the
+`__ACCENT__` placeholder and base64-encodes the result into a data URI. Base64 rather than
+inline markup keeps the SVG namespace URL out of the page, so the "nothing here touches
+the network" test stays meaningful. The map is kept to one icon per kind rather than per
+node, so the cost is about 10 KB however many devices are found.
+
+`tools/make_icons.py` draws the set. It is the source of truth: edit the geometry there
+and re-run it rather than hand-editing the SVGs. `KIND_SIZE` in `render_topology.py`
+gives each kind its node box, matched to the aspect of its drawing - a switch is wide and
+flat because a switch is.
 
 ### CSV
 
@@ -628,6 +652,10 @@ do - `local_iface` is a port on the device we interrogated, and the `switch`/`po
 **A different picture**: the renderer only reads the JSON. Write another one; nothing in
 the discovery layers needs to know.
 
+**A new device kind**: add it to `KIND_STYLE` and `KIND_SIZE` in `render_topology.py`,
+draw it in `tools/make_icons.py` and re-run that script. The renderer picks the icon up by
+name; an unrecognised kind falls back to the unknown drawing rather than vanishing.
+
 **A new field in the graph**: add it to `Node`/`Edge` in `topology.py`, to `to_dict`, and
 give it a merge rule. The rule matters more than the field.
 
@@ -672,3 +700,7 @@ freely, as long as the copyright notice stays with it.
 It ships one third-party component: `cytoscape.min.js` 3.30.2 by The Cytoscape Consortium,
 under the MIT licence, vendored in `linkfinder/assets/` with its licence text so the
 generated topology page works with no network access.
+
+The device icons are deliberately not third-party. They are drawn by
+`tools/make_icons.py` and covered by the same MIT licence as the rest, so no vendor
+stencil set has to be redistributed with the tool.

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 16 64 31" width="64" height="31" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<rect x="3" y="21" width="58" height="22" rx="3" fill="#ffffff" stroke="__ACCENT__" stroke-width="2.4"/>
+<rect x="3" y="21" width="58" height="5.5" rx="3" fill="__ACCENT__" fill-opacity="0.16"/>
+<path d="M3 26.5h58" stroke="__ACCENT__" stroke-width="1.2" stroke-opacity=".45"/>
+<rect x="8.5" y="30.0" width="5.0" height="4.4" rx="0.8" fill="__ACCENT__" fill-opacity="0.62"/>
+<rect x="14.9" y="30.0" width="5.0" height="4.4" rx="0.8" fill="__ACCENT__" fill-opacity="0.62"/>
+<rect x="21.3" y="30.0" width="5.0" height="4.4" rx="0.8" fill="__ACCENT__" fill-opacity="0.62"/>
+<rect x="27.700000000000003" y="30.0" width="5.0" height="4.4" rx="0.8" fill="__ACCENT__" fill-opacity="0.62"/>
+<rect x="34.1" y="30.0" width="5.0" height="4.4" rx="0.8" fill="__ACCENT__" fill-opacity="0.62"/>
+<rect x="40.5" y="30.0" width="5.0" height="4.4" rx="0.8" fill="__ACCENT__" fill-opacity="0.62"/>
+<rect x="46.900000000000006" y="30.0" width="5.0" height="4.4" rx="0.8" fill="__ACCENT__" fill-opacity="0.62"/>
+<rect x="8.5" y="36.6" width="5.0" height="4.4" rx="0.8" fill="__ACCENT__" fill-opacity="0.42"/>
+<rect x="14.9" y="36.6" width="5.0" height="4.4" rx="0.8" fill="__ACCENT__" fill-opacity="0.42"/>
+<rect x="21.3" y="36.6" width="5.0" height="4.4" rx="0.8" fill="__ACCENT__" fill-opacity="0.42"/>
+<rect x="27.700000000000003" y="36.6" width="5.0" height="4.4" rx="0.8" fill="__ACCENT__" fill-opacity="0.42"/>
+<rect x="34.1" y="36.6" width="5.0" height="4.4" rx="0.8" fill="__ACCENT__" fill-opacity="0.42"/>
+<rect x="40.5" y="36.6" width="5.0" height="4.4" rx="0.8" fill="__ACCENT__" fill-opacity="0.42"/>
+<rect x="46.900000000000006" y="36.6" width="5.0" height="4.4" rx="0.8" fill="__ACCENT__" fill-opacity="0.42"/>
+<circle cx="55.5" cy="32.2" r="2.0" fill="__ACCENT__" fill-opacity="0.95"/>
+<circle cx="55.5" cy="38.8" r="2.0" fill="__ACCENT__" fill-opacity="0.5"/>
+<path d="M9 21v-4M55 21v-4" stroke="__ACCENT__" stroke-width="2" stroke-opacity=".0"/>
+</svg>

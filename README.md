@@ -204,11 +204,24 @@ python -m linkfinder --render-topology site.topology.json site.topology.html
 }
 ```
 
-The HTML is one self-contained file - the topology and `cytoscape.min.js` are both
-embedded, so it opens from disk with no web server and no internet. Zoom, pan, draggable
-nodes, four layouts, a filter box, colour and shape per device kind, solid/dashed/dotted
+The HTML is one self-contained file - the topology, the device drawings and
+`cytoscape.min.js` are all embedded, so it opens from disk with no web server and no
+internet. Zoom, pan, draggable nodes, four layouts, a filter box, solid/dashed/dotted
 links by confidence, interface names at each end of every link, and a click-through panel
 showing every field. The library lives in `linkfinder/assets/` with its MIT licence.
+
+Each device is drawn as what it is rather than as a coloured blob: a rack switch with a
+port grid, a stack of server units, a router, a management board, an access point, a
+desk phone, or a dashed box with a question mark when the kind could not be worked out.
+The drawing carries the kind, the border carries the state - black for scanned, red for
+unreachable, dashed and faded for anything the crawl never opened. Untick **device
+icons** in the toolbar to drop back to the plain shapes, which redraw faster on a very
+large map.
+
+The icons are original line art in `linkfinder/assets/icons/`, one SVG per kind, with an
+`__ACCENT__` placeholder the renderer fills with the kind colour before embedding it as a
+data URI. No vendor stencil set is redistributed. Redraw or restyle them with
+`python tools/make_icons.py`.
 
 In the window: the Topology row sets the limits and the Auto Discovery tick, then
 **Generate Topology** and **View Topology**.
@@ -385,4 +398,6 @@ notice travels with the code. The design and the architecture are Stas Mitin's; 
 helped you, say where it came from.
 
 One third-party component is included: `cytoscape.min.js` 3.30.2 by The Cytoscape
-Consortium, also MIT, vendored with its licence text in `linkfinder/assets/`.
+Consortium, also MIT, vendored with its licence text in `linkfinder/assets/`. The device
+icons are not third-party - they are drawn by `tools/make_icons.py` and covered by the
+same MIT licence as the rest.

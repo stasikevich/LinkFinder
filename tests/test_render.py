@@ -4,6 +4,7 @@ Run: python tests/test_render.py
 Idea, design and architecture by Stas Mitin.
 Copyright (c) 2026 Stas Mitin. SPDX-License-Identifier: MIT
 """
+import base64
 import json
 import os
 import re
@@ -12,8 +13,10 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from linkfinder.render_topology import (assets_dir, embed_json, node_label, render_html,
-                                        render_file, summarise, to_elements, write_html)
+from linkfinder.render_topology import (KIND_SIZE, KIND_STYLE, assets_dir, embed_json,
+                                        icon_uris, node_label, render_file,
+                                        render_html, summarise, tint, to_elements,
+                                        write_html)
 from linkfinder.topology import SCHEMA_VERSION, STATE_SCANNED, Topology
 
 FAILURES = []
@@ -86,6 +89,50 @@ styles = sorted(e["data"]["lineStyle"] for e in elements["edges"])
 check("confirmed link is solid, inferred is dotted", styles, ["dotted", "solid"])
 labels = sorted(e["data"]["label"] for e in elements["edges"])
 check("interface names are on the links", labels, ["1/1/1 - eno1", "1/1/2 - ?"])
+
+print()
+print("-- every device kind ships a drawing --")
+missing = [k for k in KIND_STYLE
+           if not os.path.exists(os.path.join(assets_dir(), "icons", k + ".svg"))]
+check("no kind is left without an icon", missing, [])
+check("every kind has a node size", sorted(KIND_SIZE), sorted(KIND_STYLE))
+uris = icon_uris()
+check("one data URI per kind", sorted(uris), sorted(KIND_STYLE))
+check("they are base64 SVG data URIs",
+      all(v.startswith("data:image/svg+xml;base64,") for v in uris.values()), True)
+check("no two kinds share a drawing", len(set(uris.values())), len(KIND_STYLE))
+raw = base64.b64decode(uris["switch"].split(",", 1)[1]).decode("utf-8")
+check("the accent placeholder is filled in", "__ACCENT__" in raw, False)
+check("filled with the switch colour", KIND_STYLE["switch"][0] in raw, True)
+check("the drawing carries an intrinsic size (or it vanishes when zoomed)",
+      'width="' in raw.split(">", 1)[0] and 'height="' in raw.split(">", 1)[0], True)
+
+print()
+print("-- the tint keeps an icon readable on its node --")
+check("a kind colour washes out towards white", tint("#1f77b4", 0.13), "#e2edf5")
+check("full strength is the colour itself", tint("#1f77b4", 1.0), "#1f77b4")
+check("a broken colour falls back to white", tint("not-a-colour"), "#ffffff")
+
+print()
+print("-- a node carries its icon, tint and size --")
+t = Topology(seed="10.0.0.1")
+t.add_node(chassis_id="aa:bb:cc:dd:ee:01", mgmt_ip="10.0.0.1", name="sw",
+           kind="switch", state=STATE_SCANNED)
+t.add_node(chassis_id="aa:bb:cc:dd:ee:02", mgmt_ip="10.0.0.2", name="odd",
+           kind="toaster")
+data = {n["data"]["name"]: n["data"] for n in to_elements(t.to_dict())["nodes"]}
+check("switch points at the switch drawing", data["sw"]["icon"], "switch")
+check("and gets the switch node size",
+      [data["sw"]["iconW"], data["sw"]["iconH"]], KIND_SIZE["switch"])
+check("an unheard-of kind falls back to the unknown drawing", data["odd"]["icon"],
+      "unknown")
+check("and to the unknown node size",
+      [data["odd"]["iconW"], data["odd"]["iconH"]], KIND_SIZE["unknown"])
+page = render_html(t.to_dict(), library=STUB)
+check("the icons reach the page", "data:image/svg+xml;base64," in page, True)
+check("the page can still be drawn without them", 'id="showIcons"' in page, True)
+check("no raw svg markup leaked into the page", "<svg" in page, False)
+
 
 print()
 print("-- a hostile device name cannot break out of the script block --")
