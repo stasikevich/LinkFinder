@@ -100,7 +100,8 @@ class Crawler:
         return self.topology.add_node(
             chassis_id=view.chassis_id, mgmt_ip=view.target, name=view.name,
             kind=view.kind, vendor=view.vendor, state=state, depth=depth,
-            source=",".join(view.sources) or "probe", error=view.error)
+            source=",".join(view.sources) or "probe", error=view.error,
+            extra=dict(getattr(view, "extra", {}) or {}))
 
     def _record_neighbours(self, device: Node, view: DeviceView,
                            depth: int) -> List[Tuple[str, str]]:

@@ -114,6 +114,24 @@ parsers - `Key: value` blocks, whitespace columns under a header, and RouterOS
 change. The same table drives the MAC lookup (`show mac address-table address ...` and
 its equivalents) used when SNMP is off on a switch.
 
+## Port status and health (opt-in)
+
+Entirely optional. Without `--port-health`, or the matching tick in the window, not one
+extra SNMP request is made.
+
+```bash
+python -m linkfinder 198.51.100.1 --port-health --community <community>
+```
+
+It reads the switch port table over the SNMP transport discovery already uses and gives
+each port a verdict: `UP`, `DOWN`, `DISABLED`, `DEGRADED` or `UNKNOWN`, plus whether the
+port looks `USED` or a `FREE_CANDIDATE`, and how confident that is.
+
+**An absolute counter proves nothing.** `ifInErrors = 5000` may be five years old, so the
+counters are read twice a few seconds apart and only a counter that actually moved counts
+as evidence. A port with thousands of old errors and none new is reported healthy; a port
+whose errors grew by 37 during the sample is DEGRADED, and the reason says so.
+
 ## Topology discovery
 
 Give it one seed device and it walks outwards along LLDP/CDP, building a graph:

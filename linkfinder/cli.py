@@ -188,6 +188,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--switch-user", default="", help="switch SSH user, for the CLI fallback")
     p.add_argument("--switch-password", default="", help="switch SSH password")
     p.add_argument("--mac", default="", help="MAC to look for switch-side instead of resolving it")
+
+    health = p.add_argument_group("port status and health (opt-in)")
+    health.add_argument("--port-health", action="store_true",
+                        help="additionally read the switch port table over SNMP and judge "
+                             "each port; off by default, and nothing extra is read without it")
+    health.add_argument("--port-health-interval", type=float, default=3.0, metavar="SECONDS",
+                        help="gap between the two counter reads used to tell a growing "
+                             "error from an old one (default 3)")
+    health.add_argument("--expect-speed", type=int, default=0, metavar="MBPS",
+                        help="flag a port as degraded when it negotiates below this")
+    health.add_argument("--all-interfaces", action="store_true",
+                        help="include logical interfaces, not just physical ports")
     p.add_argument("-j", "--workers", type=int, default=8, help="parallel targets (default 8)")
     p.add_argument("--json", dest="as_json", action="store_true", help="emit JSON")
     p.add_argument("--csv", dest="as_csv", default="", metavar="FILE",
@@ -276,7 +288,9 @@ def options_from_args(args: argparse.Namespace) -> Options:
         switches=switches, switch_creds=switch_creds, seconds=args.seconds,
         ifaces=args.iface, mgmt_only=args.mgmt_only, mac=args.mac,
         workers=args.workers, verbose=not args.quiet, learn=args.learn,
-        remember_credentials=args.remember_credentials, cred_list=extra_creds)
+        remember_credentials=args.remember_credentials, cred_list=extra_creds,
+        port_health=args.port_health, port_health_interval=args.port_health_interval,
+        expect_speed=args.expect_speed, all_interfaces=args.all_interfaces)
 
 
 def write_topology(topology, args, label: str = "topology") -> None:
@@ -318,6 +332,31 @@ def run_merge(args) -> int:
     combined = merge_files(args.merge_topology)
     print("merged %d file(s)" % len(args.merge_topology), file=sys.stderr)
     return report_topology(combined, args, label="merged")
+
+
+def run_port_health(args, opts, hosts) -> None:
+    """Opt-in only. A failure here is reported and then ignored - the discovery
+    result the user asked for is already on screen."""
+    from .port_health import collect_safely, render_report
+    from .probe_snmp import build_switches
+
+    specs = list(dict.fromkeys(list(hosts) + list(args.switch)))
+    if not specs:
+        return
+    for switch in build_switches(specs, opts.community):
+        if not switch.identify():
+            print("", file=sys.stderr)
+            print("Port health on %s: UNKNOWN" % switch.host,
+                  file=sys.stderr)
+            print("Error: the device did not answer SNMP (check --community)",
+                  file=sys.stderr)
+            continue
+        report = collect_safely(
+            switch, interval=args.port_health_interval, expect_speed=args.expect_speed,
+            physical_only=not args.all_interfaces,
+            log=(lambda m: print(m, file=sys.stderr)) if opts.verbose else None)
+        print("")
+        print(render_report(report))
 
 
 def run_topology(args) -> int:
@@ -393,6 +432,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         summary = render_summary(results)
         if summary:
             print("\n" + summary, file=sys.stderr)
+
+    if args.port_health:
+        run_port_health(args, opts, targets)
 
     if args.as_csv:
         text = render_csv(results)

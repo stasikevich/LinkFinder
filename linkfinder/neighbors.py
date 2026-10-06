@@ -84,6 +84,7 @@ class DeviceView:
     error: str = ""
     sources: List[str] = field(default_factory=list)
     neighbours: List[Neighbor] = field(default_factory=list)
+    extra: dict = field(default_factory=dict)
 
 
 def view_from_result(target: str, result: TargetResult) -> DeviceView:
@@ -123,10 +124,20 @@ def collect_via_snmp(target: str, opts,
         return None
     if log:
         log("  SNMP on %s: %s, %d neighbour(s)" % (target, switch.name, len(peers)))
-    return DeviceView(
+    view = DeviceView(
         target=target, reachable=True, kind=KIND_SWITCH, name=switch.name,
         chassis_id=switch.local_chassis_id(), mgmt_ips=[target], vendor=switch.descr,
         sources=["snmp"], neighbours=peers)
+    if getattr(opts, "port_health", False):
+        from .port_health import collect_safely
+        report = collect_safely(switch, interval=getattr(opts, "port_health_interval", 3.0),
+                                expect_speed=getattr(opts, "expect_speed", 0),
+                                physical_only=not getattr(opts, "all_interfaces", False),
+                                log=log)
+        view.extra["port_health"] = report.counts()
+        if report.error:
+            view.extra["port_health_error"] = report.error
+    return view
 
 
 AUTH_FAILURE = ("rejected the credentials", "authentication", "did not get us in")

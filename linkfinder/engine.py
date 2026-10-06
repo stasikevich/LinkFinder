@@ -43,6 +43,10 @@ class Options:
     learn: bool = False
     remember_credentials: bool = False
     cred_list: List[Creds] = field(default_factory=list)
+    port_health: bool = False
+    port_health_interval: float = 3.0
+    expect_speed: int = 0
+    all_interfaces: bool = False
 
 
 def load_config() -> Dict[str, object]:

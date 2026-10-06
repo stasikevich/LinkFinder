@@ -61,60 +61,82 @@ SNMP needs no package - the SNMPv2c client is written against the standard libra
 
 ## 3. The window, field by field
 
-### Targets
+Five tabs over one top bar and one status bar. Everything site-specific is typed in; the
+window never stores anything by itself.
 
-| Field | Meaning |
+```
+ Target [ 198.51.100.12 ]  User [ admin ]  Password [ **** ]  [ Scan ] [ Advanced ]   Theme [system]
+ ---------------------------------------------------------------------------------------------
+  Overview | Neighbors | Port Health | Topology | Raw
+ ---------------------------------------------------------------------------------------------
+  DEVICE                      CONNECTION
+  Hostname  server01          Switch     sw-rack-07
+  Address   198.51.100.12     Port       Eth1/23
+  Type      bmc:dell          Switch IP  198.51.100.1
+  Vendor    Dell iDRAC 9      VLAN       84
+                              Link       UP
+                              Via        LLDP / redfish
+ ---------------------------------------------------------------------------------------------
+ * Reading SNMP...                                    device 4, queued 9        00:42
+```
+
+### Top bar
+
+| Control | Meaning |
 |---|---|
-| **Targets** | One or more addresses, separated by commas or spaces. For topology discovery only the **first** address is used, as the seed. |
+| **Target** | Address to scan, or the seed for a topology. Enter runs the scan. |
+| **User / Password** | SSH credentials; the password is also used for `sudo`. With a password set, agent keys are not tried - network devices allow very few auth attempts. |
+| **Scan** | Runs the port lookup for the target. |
+| **Advanced** | Folds out everything you set once: SSH key, BMC credentials, switches and SNMP community, interface filter, MAC, mode, capture seconds, and the three behaviour ticks. |
+| **Theme** | `system`, `light` or `dark`. `system` follows the Windows setting. |
 
-### Credentials
+### Advanced panel
 
-| Field | Meaning |
+| Control | Meaning |
 |---|---|
-| **SSH user** | Login used for hosts and for switches. |
-| **SSH password** | Also used for `sudo`. When a password is given, keys from the agent and `~/.ssh` are **not** tried - network devices allow only a couple of auth attempts and drop the session. |
 | **SSH key file** | Private key instead of a password. |
-| **BMC user / BMC password** | Redfish only. Left empty, the SSH credentials are reused. |
-| **Switches (SNMP)** | Switches that may be asked from the switch side. `10.0.0.1` or `10.0.0.1@community` to override the community for one of them. |
-| **SNMP community** | Default community for every switch. |
-| **Interfaces (optional)** | Restrict the probe to these interfaces. A bond expands to its physical legs. |
-| **MAC (switch-side)** | Look this MAC up in the forwarding tables instead of working it out from the target. |
+| **BMC user / password** | Redfish only. Empty means reuse the SSH credentials. |
+| **Switches (SNMP)** | Switches that may be asked. `address` or `address@community`. |
+| **SNMP community** | Default community. |
+| **Interfaces** | Restrict the probe. A bond expands to its physical legs. |
+| **MAC (switch-side)** | Look this MAC up instead of working one out. |
+| **Mode** | `auto` decides for itself; the rest force a path. |
+| **Capture seconds** | How long to listen when a capture is unavoidable. 65 by default, LLDP ticks every 30. |
+| **management interface only** | Probe only the interface carrying the address typed. |
+| **enable LLDP on a BMC if it is off** | Allows one write to the BMC. Untick to leave it untouched. |
+| **remember switches it finds** | Writes to `~/.linkfinder-switches.json`. Off by default. |
+| **Known switches / Forget** | Show or wipe that list. |
 
-### Mode row
+### Tabs
 
-| Control | Meaning |
-|---|---|
-| **Mode** | `auto` picks the access path itself. The rest force one: `ssh`, `bmc`, `esxi`, `windows`, `windows-local`, `switch` (ask the switches about this device), `switch-cli` (log into this switch and read its neighbour table). |
-| **Capture seconds** | How long to listen when a capture is unavoidable. 65 by default, because LLDP is sent every 30 seconds. |
-| **management interface only** | Probe only the interface carrying the address you typed. This is the behaviour of the old LLDP_Checker. |
-| **enable LLDP on the BMC if it is off** | Allows a write to the BMC that switches its LLDP receiver on. Untick to leave the BMC untouched. |
-| **remember switches it finds (writes to disk)** | Records discovered switches in `~/.linkfinder-switches.json`. Off by default: with it off nothing is written to disk. |
+**Overview** - the answer in three cards: the device, the connection, the neighbour.
+Colour carries meaning and nothing else: green for up and healthy, orange for degraded,
+red for down or failed, grey for unknown or disabled.
 
-### Topology row
+**Neighbors** - one row per link found on the target: local port, switch, switch address,
+switch port, VLAN, method, confidence.
 
-| Control | Meaning |
-|---|---|
-| **max depth** | Seed is depth 0. At depth N the devices are still interrogated; their neighbours are recorded but not queued. |
-| **max devices** | Hard ceiling on how many devices get interrogated. |
-| **scope (CIDR)** | Restricts only *connecting*. Neighbours outside it are still drawn, marked `out-of-scope`. Several networks may be given, space separated. |
-| **Auto Discovery (do not ask)** | Off: you are asked before each deeper level. On: it runs until a limit stops it. |
+**Port Health** - off until you tick **Read SNMP port status / health**; the interval and
+expected-speed boxes stay disabled until then, and nothing extra is read. Once on, each
+scan also reads the switch port table and lists every physical port with its link state,
+speed, usage and health. Selecting a row shows that port's counters and the reason behind
+its verdict.
 
-### Buttons
+**Topology** - its own controls, kept away from single-device lookup: max depth, max
+devices, scope, an Auto Discovery tick, and **Generate / View / Merge / Stop**. The result
+table lists every device found with its depth and state.
 
-| Button | What it does |
-|---|---|
-| **FIND SWITCH PORTS** | The per-target port lookup. Fills the table. |
-| **Generate Topology** | Asks where to save the HTML, writes the JSON beside it, then crawls. |
-| **View Topology** | Opens the last generated page, or asks for one. |
-| **Stop** | Ends a running crawl. Devices already in flight finish; nothing new is queued, and the reason is recorded in the file. |
-| **Merge topologies** | Pick two or more topology JSON files and combine them into one site map. |
-| **Export CSV / Export JSON** | Save the port-lookup results. |
-| **Known switches / Forget switches** | Show or wipe the remembered switch list. |
+**Raw** - the full log, plus **Export CSV**, **Export JSON** and **Error details**. The
+main window never shows a traceback; the short reason goes in the status bar and the
+technical text waits behind that button.
 
-The counter next to the buttons shows `scanned N, queued M` while a crawl runs. The lower
-pane is the live log; the upper table is the result.
+### Status bar
 
----
+The dot and the phrase say what is happening right now - `Reading LLDP...`,
+`Capturing LLDP/CDP...`, `Reading SNMP...`, `Sampling port counters...`,
+`Scanning 198.51.100.4...`. During a topology walk the counter shows how many devices have
+been done and how many are queued, and the clock on the right shows elapsed time. The
+window stays responsive throughout: all network work happens on worker threads.
 
 ## 4. Command line reference
 
@@ -149,6 +171,15 @@ pane is the live log; the upper table is the result.
 | `--community NAME` | Default SNMP v2c community. |
 | `--switch-user`, `--switch-password` | Login for the switch CLI fallback. |
 | `--mac MAC` | Look this MAC up instead of resolving one. |
+
+### Port status and health (opt-in)
+
+| Flag | Meaning |
+|---|---|
+| `--port-health` | Also read the switch port table over SNMP and judge each port. **Off by default; without it not one extra SNMP read happens.** |
+| `--port-health-interval SECONDS` | Gap between the two counter reads, default 3. |
+| `--expect-speed MBPS` | Call a port degraded when it negotiates below this. Without an expectation, speed is never judged. |
+| `--all-interfaces` | Include logical interfaces, not only physical ports. |
 
 ### Topology
 
@@ -326,6 +357,71 @@ Merging is the normal way to map a site where devices need different logins: one
 per credential set, then one merge. The merge uses the same identity rules, so a device
 that was `unreachable` in one scan and `scanned` in another ends up scanned, with both
 addresses and one confirmed link where the two scans met.
+
+---
+
+## 6a. Port status and health
+
+Entirely opt-in. Without `--port-health` the tool does not issue a single extra SNMP
+request; with it, the switch port table is read and each port gets a verdict.
+
+```bash
+python -m linkfinder 198.51.100.1 --port-health --community <community>
+```
+
+**What is read**, all standard MIBs, through the SNMP transport discovery already uses:
+IF-MIB (`ifName`, `ifDescr`, `ifType`, `ifAdminStatus`, `ifOperStatus`, `ifSpeed` /
+`ifHighSpeed`, `ifLastChange`, `ifPhysAddress`, `ifInErrors`, `ifOutErrors`,
+`ifInDiscards`, `ifOutDiscards`, `ifHCInOctets`, `ifHCOutOctets`), LLDP-MIB for the
+neighbour on each port, and BRIDGE / Q-BRIDGE for learned MACs and the port VLAN.
+
+**The rule that matters.** An absolute counter proves nothing - `ifInErrors = 5000` may
+have accumulated over years. The counters are therefore read twice, a few seconds apart,
+and only a counter that actually **moved** counts as evidence. A port with five thousand
+old errors and no new ones is reported as healthy.
+
+**Status**: `UP`, `DOWN`, `DISABLED`, `DEGRADED`, `UNKNOWN`.
+**Usage**: `USED`, `FREE_CANDIDATE`, `DISABLED`, `UNKNOWN`.
+
+| Observed | Status | Usage | Confidence |
+|---|---|---|---|
+| admin down | DISABLED | DISABLED | high |
+| admin up, link up, LLDP neighbour | UP | USED | high |
+| admin up, link up, MACs learned | UP | USED | high (medium for a single MAC) |
+| admin up, link up, nothing identifies the far end | UP | USED | low |
+| admin up, link down | DOWN | FREE_CANDIDATE | medium |
+| admin or link not reported | UNKNOWN | UNKNOWN | low |
+
+A port becomes **DEGRADED** only on real evidence: errors or discards that grew during
+the sampling window, a link that changed state in the last five minutes, or a speed below
+one you declared with `--expect-speed`. Vendor transceiver alarms are an extension point,
+not a promise - nothing is invented when the MIB is absent.
+
+```
+Port: Eth1/17
+Admin: UP
+Link: UP
+Speed: 1G
+Usage: USED
+Health: DEGRADED
+Confidence: HIGH
+
+LLDP:
+  Neighbor: server01
+  Remote port: eno1
+
+Counters:
+  rx_errors:   1240 (+37)
+  tx_errors:   0 (+0)
+  rx_discards: 12 (+3)
+
+Reason:
+  rx_errors increased by 37 during sampling
+```
+
+If the health read fails while ordinary discovery succeeded, the discovery result is
+still printed and the health section says `UNKNOWN` with the reason. A health failure
+never aborts a scan.
 
 ---
 
