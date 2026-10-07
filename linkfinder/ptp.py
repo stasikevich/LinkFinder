@@ -138,7 +138,17 @@ class PtpPort:
     port_identity: str = ""
     gm_identity: str = ""
     gm_present: Optional[bool] = None
-    offset_ns: Optional[int] = None
+    gm_class: Optional[int] = None
+    gm_accuracy: Optional[int] = None
+    parent_port: str = ""
+    offset_ns: Optional[float] = None
+    mean_path_delay_ns: Optional[float] = None
+    steps_removed: Optional[int] = None
+    utc_offset: Optional[int] = None
+    time_source: Optional[int] = None
+    time_traceable: Optional[bool] = None
+    frequency_traceable: Optional[bool] = None
+    source: str = ""
     peers: List[PtpPeer] = field(default_factory=list)
     responders: List[Dict[str, Any]] = field(default_factory=list)
     error: str = ""
@@ -160,7 +170,7 @@ class PtpPort:
         else:
             return ""
         if self.offset_ns is not None:
-            out += " %+dns" % self.offset_ns
+            out += " %+gns" % self.offset_ns
         return out
 
     def to_dict(self) -> Dict[str, Any]:
@@ -169,7 +179,15 @@ class PtpPort:
             "domain": self.domain, "transport": self.transport, "state": self.state,
             "summary": self.summary,
             "port_identity": self.port_identity, "gm_identity": self.gm_identity,
-            "gm_present": self.gm_present, "offset_ns": self.offset_ns,
+            "gm_present": self.gm_present, "gm_class": self.gm_class,
+            "gm_accuracy": self.gm_accuracy, "parent_port": self.parent_port,
+            "offset_ns": self.offset_ns,
+            "mean_path_delay_ns": self.mean_path_delay_ns,
+            "steps_removed": self.steps_removed, "utc_offset": self.utc_offset,
+            "time_source": self.time_source,
+            "time_traceable": self.time_traceable,
+            "frequency_traceable": self.frequency_traceable,
+            "source": self.source,
             "responders": [dict(r) for r in self.responders],
             "peers": [{"mac": p.mac, "clock_identity": p.clock_identity,
                        "port_number": p.port_number, "domain": p.domain,
@@ -394,22 +412,93 @@ def parse_pmc(text: str) -> Dict[str, str]:
     return out
 
 
-def apply_pmc(port: PtpPort, port_data: str, time_status: str) -> PtpPort:
-    fields = parse_pmc(port_data)
-    port.state = fields.get("portState", "")
-    port.port_identity = fields.get("portIdentity", "")
-    status = parse_pmc(time_status)
-    port.gm_identity = status.get("gmIdentity", "")
-    present = status.get("gmPresent", "")
+def _number(text: str) -> Optional[float]:
+    try:
+        value = float(str(text).strip())
+    except (TypeError, ValueError):
+        return None
+    return int(value) if value == int(value) else value
+
+
+def _truth(text: str) -> Optional[bool]:
+    """A MIB-ish boolean: 1/true, 0/false, anything else is not an answer."""
+    text = str(text).strip().lower()
+    if text in ("1", "true"):
+        return True
+    if text in ("0", "false"):
+        return False
+    return None
+
+
+def apply_datasets(port: PtpPort, answers: Dict[str, str]) -> PtpPort:
+    """Fill a port from whichever data sets answered, standard ones first.
+
+    IEEE 1588 defines DEFAULT, CURRENT, PARENT, TIME_PROPERTIES and PORT. Those
+    are the ones any conforming implementation has. TIME_STATUS_NP is a
+    linuxptp extension - the NP is literally "non-portable" - so it is read
+    last and only fills gaps the standard sets left. Reading the offset from it
+    alone, as the first version did, would have produced nothing at all on a
+    boundary clock that is not Linux.
+    """
+    port_ds = parse_pmc(answers.get("PORT_DATA_SET", ""))
+    current = parse_pmc(answers.get("CURRENT_DATA_SET", ""))
+    parent = parse_pmc(answers.get("PARENT_DATA_SET", ""))
+    props = parse_pmc(answers.get("TIME_PROPERTIES_DATA_SET", ""))
+    extra = parse_pmc(answers.get("TIME_STATUS_NP", ""))
+
+    port.state = port_ds.get("portState", port.state)
+    port.port_identity = port_ds.get("portIdentity", port.port_identity)
+
+    if "offsetFromMaster" in current:
+        port.offset_ns = _number(current["offsetFromMaster"])
+        port.source = "IEEE 1588 data sets"
+    port.mean_path_delay_ns = _number(current.get("meanPathDelay", ""))
+    if "stepsRemoved" in current:
+        port.steps_removed = _number(current["stepsRemoved"])
+
+    port.gm_identity = parent.get("grandmasterIdentity", port.gm_identity)
+    port.parent_port = parent.get("parentPortIdentity", port.parent_port)
+    if "gm.ClockClass" in parent:
+        port.gm_class = _number(parent["gm.ClockClass"])
+    accuracy = parent.get("gm.ClockAccuracy")
+    if accuracy:
+        try:
+            port.gm_accuracy = int(str(accuracy), 0)
+        except ValueError:
+            port.gm_accuracy = None
+
+    if "currentUtcOffset" in props:
+        port.utc_offset = _number(props["currentUtcOffset"])
+    port.time_traceable = _truth(props.get("timeTraceable", ""))
+    port.frequency_traceable = _truth(props.get("frequencyTraceable", ""))
+    source = props.get("timeSource")
+    if source:
+        try:
+            port.time_source = int(str(source), 0)
+        except ValueError:
+            port.time_source = None
+
+    if port.offset_ns is None and "master_offset" in extra:
+        port.offset_ns = _number(extra["master_offset"])
+        port.source = "linuxptp TIME_STATUS_NP"
+    if not port.gm_identity:
+        port.gm_identity = extra.get("gmIdentity", "")
+    present = extra.get("gmPresent", "")
     if present:
         port.gm_present = present.lower() == "true"
-    offset = status.get("master_offset", "")
-    try:
-        port.offset_ns = int(offset)
-    except ValueError:
-        port.offset_ns = None
     return port
 
+
+def apply_pmc(port: PtpPort, port_data: str, time_status: str) -> PtpPort:
+    """Kept for the two-argument call; the dataset form is the real one."""
+    return apply_datasets(port, {"PORT_DATA_SET": port_data,
+                                 "TIME_STATUS_NP": time_status})
+
+
+# The first four are IEEE 1588; the last is linuxptp's own and is allowed to
+# be missing.
+LOCAL_DATASETS = ("PORT_DATA_SET", "CURRENT_DATA_SET", "PARENT_DATA_SET",
+                  "TIME_PROPERTIES_DATA_SET", "TIME_STATUS_NP")
 
 PS_COMMAND = "ps -eo args 2>/dev/null | grep '[p]tp4l'"
 PHC_COMMAND = (
@@ -457,8 +546,8 @@ def collect_ptp(run: Callable[[str], str], ifaces: Optional[List[str]] = None,
             continue
         port.phc = phc.get(port.iface, "")
         try:
-            apply_pmc(port, run(_pmc_command(port, "PORT_DATA_SET")),
-                      run(_pmc_command(port, "TIME_STATUS_NP")))
+            apply_datasets(port, {name: run(_pmc_command(port, name))
+                                  for name in LOCAL_DATASETS})
         except Exception as exc:
             port.error = "pmc failed: %s" % exc
         ports[port.iface] = port

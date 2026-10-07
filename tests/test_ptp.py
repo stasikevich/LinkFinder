@@ -11,7 +11,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from linkfinder.model import Neighbor, TargetResult
-from linkfinder.ptp import (ANNOUNCE_LEN, PtpPeer, PtpPort, apply_pmc,
+from linkfinder.ptp import (ANNOUNCE_LEN, PtpPeer, PtpPort, apply_datasets,
+                            apply_pmc,
                             clock_identity, describe_clock_class,
                             describe_grandmaster, describe_responder,
                             normalise_mac, parse_pmc_responses, query_segment,
@@ -452,6 +453,67 @@ class ExplodingSwitch:
 
 check("an SNMP blow-up is caught, not propagated",
       read_switch_ptp_safely(ExplodingSwitch()).error.startswith("RuntimeError"), True)
+
+
+print()
+print("-- the offset comes from a standard data set, not a linuxptp one --")
+CURRENT = """sending: GET CURRENT_DATA_SET
+	507c6f.fffe.85109a-0 seq 0 RESPONSE MANAGEMENT CURRENT_DATA_SET
+		stepsRemoved     1
+		offsetFromMaster -3.0
+		meanPathDelay    10.0
+"""
+PARENT = """sending: GET PARENT_DATA_SET
+	507c6f.fffe.85109a-0 seq 0 RESPONSE MANAGEMENT PARENT_DATA_SET
+		parentPortIdentity                    000580.fffe.08355b-13
+		grandmasterPriority1                  128
+		gm.ClockClass                         6
+		gm.ClockAccuracy                      0x21
+		grandmasterIdentity                   000580.fffe.08355b
+"""
+PROPS = """sending: GET TIME_PROPERTIES_DATA_SET
+	507c6f.fffe.85109a-0 seq 0 RESPONSE MANAGEMENT TIME_PROPERTIES_DATA_SET
+		currentUtcOffset      37
+		ptpTimescale          1
+		timeTraceable         1
+		frequencyTraceable    0
+		timeSource            0x20
+"""
+
+standard = apply_datasets(PtpPort(iface="f2", domain=24), {
+    "PORT_DATA_SET": PORT_DATA, "CURRENT_DATA_SET": CURRENT,
+    "PARENT_DATA_SET": PARENT, "TIME_PROPERTIES_DATA_SET": PROPS})
+check("offset from offsetFromMaster", standard.offset_ns, -3)
+check("and the source is named as the standard one", standard.source,
+      "IEEE 1588 data sets")
+check("mean path delay comes with it", standard.mean_path_delay_ns, 10)
+check("steps removed too", standard.steps_removed, 1)
+check("the grandmaster from PARENT_DATA_SET", standard.gm_identity,
+      "000580.fffe.08355b")
+check("with its class", standard.gm_class, 6)
+check("and accuracy parsed from hex", standard.gm_accuracy, 0x21)
+check("which port of the grandmaster we hang off", standard.parent_port,
+      "000580.fffe.08355b-13")
+check("UTC offset", standard.utc_offset, 37)
+check("time traceable", standard.time_traceable, True)
+check("frequency not", standard.frequency_traceable, False)
+check("time source", standard.time_source, 0x20)
+check("state still from PORT_DATA_SET", standard.state, "SLAVE")
+
+only_np = apply_datasets(PtpPort(iface="f2", domain=24), {
+    "PORT_DATA_SET": PORT_DATA, "TIME_STATUS_NP": TIME_STATUS})
+check("a host with no standard answer falls back", only_np.offset_ns, -3)
+check("and says it had to", only_np.source, "linuxptp TIME_STATUS_NP")
+
+both = apply_datasets(PtpPort(iface="f2", domain=24), {
+    "PORT_DATA_SET": PORT_DATA, "CURRENT_DATA_SET": CURRENT,
+    "TIME_STATUS_NP": TIME_STATUS.replace("master_offset              -3",
+                                          "master_offset              999")})
+check("when both answer the standard one wins", both.offset_ns, -3)
+check("and is credited", both.source, "IEEE 1588 data sets")
+
+check("nothing at all leaves the port empty rather than guessing",
+      apply_datasets(PtpPort(iface="f2"), {}).offset_ns, None)
 
 print()
 if FAILURES:
