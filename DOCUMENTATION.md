@@ -730,6 +730,76 @@ sysORTable, and is reported as exactly that.
 written in implements the MIB, so it has never been run against hardware that
 does. Treat its output as unproven until it has been.
 
+### The clock tree
+
+`ptp_tree.py`. Per-port facts answer "what is this port doing"; they do not
+answer "is everything on the same clock, and where does that clock come from".
+The ports are grouped into domains and the domains into trees.
+
+The distinction that keeps it usable: a server running a master on a
+point-to-point segment **is** the grandmaster of that segment, and in a
+fronthaul design that is the point. Such a grandmaster is reported as an
+island. Two grandmasters that are *not* ours sharing one domain number is a
+different matter and is reported as a split domain.
+
+```
+PTP, domain 24
+  grandmaster 000580.fffe.08355b  (sw-core-1, class 6)
+      server1 enp23s0f2          SLAVE, offset -3 ns, path delay 9 ns, 1 step(s)
+      server4 enp101s0f1         SLAVE, offset -2 ns, path delay 120 ns, 1 step(s)
+  grandmaster 008015.fffe.4290d0  (class 6)
+      server3 enp23s0f0          SLAVE, offset +3 ns, path delay 21 ns, 1 step(s)
+  island: server1 enp23s0f0 is the grandmaster of its own segment
+      server2 enp101s0f3         SLAVE, offset +1 ns, path delay 72 ns
+  SPLIT DOMAIN: domain 24 follows 2 different grandmasters that are not ours
+```
+
+Per port, each against a named IEEE 1588 object:
+
+| Finding | From | Confidence |
+|---|---|---|
+| grandmaster not locked | `gm.ClockClass` outside the locked set | high |
+| offset past the threshold | `offsetFromMaster` | high |
+| time not traceable | `timeTraceable = 0` on a slave | medium |
+
+The offset threshold defaults to 1000 ns and is deliberately loose. G.8275.1
+allows roughly 1.5 us end to end and a healthy boundary clock sits in the tens
+of nanoseconds, so a microsecond is far enough out to be worth a look and far
+enough in not to be an alarm.
+
+**A domain-level finding stays at domain level.** The first version stamped the
+split onto every port in the domain, which on a six-port fronthaul host filled
+the issues column with one piece of news repeated. Only what was measured at a
+port goes on that port's row; the split is said once, in the report and on the
+line above the device table.
+
+Ports with nothing wrong get a clean verdict rather than none, so "checked and
+fine" stays distinguishable from "never looked".
+
+### Where the numbers come from
+
+Nothing in the PTP output is invented, and the values mean the same thing on
+anyone's network:
+
+| Shown | Field | Standard |
+|---|---|---|
+| `dom 24` | `domainNumber` | IEEE 1588; **24** is what ITU-T G.8275.1 specifies, G.8275.2 uses 44, the default profile 0 |
+| `SLAVE` / `MASTER` | `portState` | IEEE 1588 (1588-2019 renames these TIME_RECEIVER / TIME_TRANSMITTER; linuxptp and the MIB still print the old names) |
+| `offset +0 ns` | `offsetFromMaster` | IEEE 1588 CURRENT_DATA_SET |
+| `path delay 9 ns` | `meanPathDelay` | IEEE 1588 CURRENT_DATA_SET |
+| `1 step` | `stepsRemoved` | IEEE 1588 |
+| `class 6` | `clockClass` | IEEE 1588; the 135-165 band is G.8275.1 |
+| `100 ns` | `clockAccuracy 0x21` | IEEE 1588 |
+| `GNSS` | `timeSource 0x20` | IEEE 1588 |
+
+The domain number is read from the running daemon and from the frame header -
+it is never assumed. A value we do not have a word for is printed as the value
+rather than guessed at: `class 99`, `accuracy 0x1b`.
+
+`TIME_STATUS_NP` is read last and only to fill gaps. The NP means
+non-portable: it is linuxptp's own object, and a tool that took its headline
+number from there would return nothing on most boundary clocks.
+
 ### Rung 3: the switch CLI
 
 Not built. `show ptp clock` / `parent` / `port` would slot into the existing

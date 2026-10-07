@@ -273,6 +273,27 @@ reported as publishing nothing, never as broken, and the passive read keeps
 working regardless. The SNMP route is covered by tests but has not yet been run
 against hardware that implements the MIB.
 
+It also assembles the clock tree. Ports are grouped by domain, and a grandmaster
+that is one of our own ports is called an island - a server feeding a radio over
+a point-to-point link is the grandmaster of that segment by design, not by
+accident. Two grandmasters that are *not* ours under one domain number is a
+split domain, and gets said once:
+
+```text
+PTP, domain 24
+  grandmaster 000580.fffe.08355b  (sw-core-1, class 6)
+      server1 enp23s0f2   SLAVE, offset -3 ns, path delay 9 ns, 1 step(s)
+  grandmaster 008015.fffe.4290d0  (class 6)
+      server3 enp23s0f0   SLAVE, offset +3 ns, path delay 21 ns, 1 step(s)
+  island: server1 enp23s0f0 is the grandmaster of its own segment
+  SPLIT DOMAIN: domain 24 follows 2 different grandmasters that are not ours
+```
+
+Everything shown is a named IEEE 1588 field, not our invention - `domainNumber`,
+`portState`, `offsetFromMaster`, `meanPathDelay`, `clockClass`, `timeSource` -
+read from the standard data sets so it works on anything that speaks 1588, not
+only on linuxptp. A value we have no word for is printed as the value.
+
 This costs two cheap commands per host and runs by default. `--no-ptp` turns it off.
 
 ## Topology discovery
@@ -503,6 +524,8 @@ python tests/test_netaddr.py     # which addresses are reachable, and printing t
 python tests/test_linkcheck.py   # MTU/VLAN/speed/LACP/STP, and bond folding
 python tests/test_optics.py      # reading a module, and comparing two ends
 python tests/test_diff.py        # what moved between two scans
+python tests/test_ptp_tree.py    # islands, split domains, per-port verdicts
+python tests/test_duplicates.py  # address conflicts, and the stale entry
 ```
 
 ## Building the .exe
@@ -526,6 +549,9 @@ A running `LinkFinder-GUI.exe` also has to be closed before PyInstaller can repl
 | `linkfinder/netaddr.py` | which addresses we can actually connect to |
 | `linkfinder/ptp.py` | timing role per port, and naming the far end of a dark cable |
 | `linkfinder/ptp_snmp.py` | the switch side of PTP: RFC 8173, then vendor trees |
+| `linkfinder/ptp_tree.py` | the clock tree per domain, islands and splits |
+| `linkfinder/consistency.py` | when the two ends of a cable disagree |
+| `linkfinder/duplicates.py` | one address with two owners |
 | `linkfinder/linkcheck.py` | comparing the two ends of a link |
 | `linkfinder/optics.py` | transceivers, and whether the two ends match |
 | `linkfinder/lag.py` | bonds and port-channels, folded into one link |

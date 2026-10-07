@@ -447,7 +447,9 @@ class App:
                                      style="MutedBg.TLabel")
         self.device_line.pack(anchor=tk.W, pady=(0, 2))
         self.scan_note = ttk.Label(page, text="", style="MutedBg.TLabel")
-        self.scan_note.pack(anchor=tk.W, pady=(0, 8))
+        self.scan_note.pack(anchor=tk.W, pady=(0, 2))
+        self.site_note = ttk.Label(page, text="", style="MutedBg.TLabel")
+        self.site_note.pack(anchor=tk.W, pady=(0, 8))
 
         picker = ttk.Frame(page)
         picker.pack(fill=tk.X, pady=(0, 6))
@@ -748,6 +750,7 @@ class App:
         else:
             self.device_label.pack_forget()
             self.device_pick.pack_forget()
+        self._show_site_findings(results)
         self._show_device()
         self.btn_run.configure(state=tk.NORMAL, text="Scan")
         resolved = sum(1 for r in results for n in r.neighbors if n.resolved)
@@ -761,6 +764,30 @@ class App:
                              "DOWN")
         self.mode.set("device")
         self._show_mode()
+
+    def _show_site_findings(self, results) -> None:
+        """Things that belong to the site rather than to any one device.
+
+        A split PTP domain or a duplicated address spans machines, so it has
+        no row to sit on. It goes above the table instead of being repeated
+        onto every port it touches.
+        """
+        lines = []
+        try:
+            from .ptp_tree import build as build_ptp, domain_problems
+            for problem in domain_problems(build_ptp(results)):
+                lines.append(problem["detail"])
+        except Exception as exc:
+            self.say("  ptp tree: %s" % exc)
+        for result in results or []:
+            found = (getattr(result, "extra", {}) or {}).get("duplicates") or {}
+            for item in (found.get("ips") or []) + (found.get("macs") or []):
+                if item["detail"] not in lines:
+                    lines.append(item["detail"])
+            break
+        self.site_note.configure(text="  |  ".join(lines))
+        for line in lines:
+            self.say("  site: %s" % line)
 
     def _health_for(self, nb):
         """The switch port this cable lands on, if port health was read."""
