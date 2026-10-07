@@ -906,6 +906,11 @@ class App:
         if nb.note:
             lines.append(nb.note)
 
+        card = nb.extra.get("nic_card")
+        if card:
+            from .sensors import Card
+
+            lines.append("NIC: %s" % Card(**card).describe())
         module = nb.extra.get("optics")
         if module:
             from .optics import diagnostics, label as optic_label

@@ -292,6 +292,12 @@ def _finish_results(results: List[TargetResult], opts: Options,
     except Exception as exc:
         if log:
             log("  ptp tree failed: %s" % exc)
+    try:
+        from .sensors import apply as apply_sensors
+        apply_sensors(results, log=log)
+    except Exception as exc:
+        if log:
+            log("  sensor read failed: %s" % exc)
     return results
 
 
