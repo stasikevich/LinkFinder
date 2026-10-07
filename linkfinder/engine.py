@@ -286,6 +286,12 @@ def _finish_results(results: List[TargetResult], opts: Options,
     except Exception as exc:
         if log:
             log("  duplicate search failed: %s" % exc)
+    try:
+        from .ptp_tree import apply as apply_ptp, build as build_ptp
+        apply_ptp(results, build_ptp(results))
+    except Exception as exc:
+        if log:
+            log("  ptp tree failed: %s" % exc)
     return results
 
 

@@ -385,6 +385,26 @@ def run_port_health(args, opts, hosts, results=None) -> None:
               "the switch with --switch)" % ", ".join(specs), file=sys.stderr)
 
 
+def run_ptp_report(results, log=None) -> None:
+    """The clock tree, after the per-port table has had its say."""
+    from .ptp import clock_identity_to_mac, known_port_index, normalise_mac
+    from .ptp_tree import build, render
+
+    domains = build(results)
+    if not domains:
+        return
+    index = known_port_index(results)
+
+    def name_of(clock):
+        hit = index.get(normalise_mac(clock_identity_to_mac(clock)))
+        return ("%s %s" % hit).strip() if hit else ""
+
+    text = render(domains, name_of=name_of)
+    if text:
+        print("")
+        print(text)
+
+
 def run_switch_ptp(args, opts, hosts, results=None) -> None:
     """Ask each switch found what it says about PTP, where it says anything.
 
@@ -500,6 +520,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 print(text)
             break
     if args.ptp:
+        run_ptp_report(results)
         run_switch_ptp(args, opts, targets, results)
     if args.port_health:
         run_port_health(args, opts, targets, results)

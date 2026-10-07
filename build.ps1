@@ -21,7 +21,8 @@ Invoke-Step "tests: topology" { python tests\test_topology.py | Select-Object -L
 Invoke-Step "tests: crawl"   { python tests\test_crawl.py     | Select-Object -Last 1 }
 Invoke-Step "tests: render"  { python tests\test_render.py    | Select-Object -Last 1 }
 Invoke-Step "tests: health"  { python tests\test_port_health.py | Select-Object -Last 1 }
-Invoke-Step "tests: ptp"     { python tests\test_ptp.py       | Select-Object -Last 1 }
+Invoke-Step "tests: ptp"     { python tests\test_ptp.py       | Select-Object -Last 1 }
+Invoke-Step "tests: ptptree" { python tests\test_ptp_tree.py   | Select-Object -Last 1 }
 Invoke-Step "tests: netaddr" { python tests\test_netaddr.py   | Select-Object -Last 1 }
 Invoke-Step "tests: links"   { python tests\test_linkcheck.py  | Select-Object -Last 1 }
 Invoke-Step "tests: diff"    { python tests\test_diff.py       | Select-Object -Last 1 }
