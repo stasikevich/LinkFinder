@@ -41,6 +41,16 @@ linkfinder --topology 198.51.100.1 -u admin -p secret \
 A bond is one link on the map, not four unrelated cables. A device nobody can log
 into is still on the map. Line style carries how sure we are.
 
+The same graph carries three layers. **Physical** is the picture above.
+**PTP** colours each device by its IEEE 1588 port state and marks the
+grandmaster, so the clock tree is visible at a glance. **Problems** dims
+everything that is fine and leaves only the links with a verdict:
+
+![Problems layer](docs/img/problems-layer.png)
+
+On a healthy network that view is nearly empty, which is the point. Clicking a
+link explains it - every check, both sides' values, and the evidence.
+
 ## And tells you what is wrong with a link
 
 Both ends are compared wherever both ends can be reached - MTU, VLAN, speed, which

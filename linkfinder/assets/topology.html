@@ -54,8 +54,14 @@
   <label><input type="checkbox" id="showUnscanned" checked> unscanned</label>
   <label><input type="checkbox" id="showLabels" checked> interface labels</label>
   <label><input type="checkbox" id="showIcons" checked> device icons</label>
+  <span id="layers">layer
+    <label><input type="radio" name="layer" value="physical" checked> physical</label>
+    <label><input type="radio" name="layer" value="ptp"> PTP</label>
+    <label><input type="radio" name="layer" value="problems"> problems</label>
+  </span>
   <button id="fit">fit</button>
   <span class="legend" id="legend"></span>
+  <span class="legend" id="layerlegend"></span>
 </div>
 <div id="wrap">
   <div id="cy"></div>
@@ -71,6 +77,8 @@ const ELEMENTS = __ELEMENTS__;
 const KIND_STYLE = __KIND_STYLE__;
 const EDGE_STYLE = __EDGE_STYLE__;
 const ICONS = __ICONS__;
+const PTP_STYLE = __PTP_STYLE__;
+const VERDICT_STYLE = __VERDICT_STYLE__;
 
 function iconFor(n) { return ICONS[n.data('icon')] || ICONS.unknown; }
 
@@ -131,6 +139,39 @@ const cy = cytoscape({
         'font-size': 9, 'color': '#2d3748',
         'text-background-color': '#ffffff', 'text-background-opacity': 0.85,
         'text-background-padding': 2, 'edge-text-rotation': 'autorotate' } },
+    { selector: 'node.ptp', style: {
+        'background-image': 'none', 'shape': 'ellipse',
+        'background-color': 'data(ptpColour)', 'background-opacity': 1,
+        'width': 30, 'height': 30, 'border-width': 2,
+        'border-color': '#ffffff' } },
+    { selector: 'node.ptp[ptpRole = ""]', style: {
+        'background-color': '#c9d1d9', 'width': 18, 'height': 18,
+        'color': '#8b949e' } },
+    { selector: 'edge.ptp', style: {
+        'line-color': '#c9d1d9', 'width': 2, 'line-style': 'solid',
+        'source-label': '', 'target-label': '' } },
+    { selector: 'edge.ptp[ptpDomain != ""]', style: {
+        'line-color': '#6f42c1', 'width': 3, 'label': 'data(ptpDomain)',
+        'font-size': 9, 'text-background-color': '#ffffff',
+        'text-background-opacity': 0.85, 'text-background-padding': 2 } },
+
+    { selector: 'node.problems', style: {
+        'background-opacity': 0.12, 'background-image-opacity': 0.18,
+        'border-color': '#d7dde3', 'color': '#9aa4af' } },
+    { selector: 'edge.problems', style: {
+        'line-color': '#e3e8ed', 'width': 2, 'line-style': 'solid',
+        'source-label': '', 'target-label': '' } },
+    { selector: 'edge.problems[worst = "warn"]', style: {
+        'line-color': 'data(problemColour)', 'width': 4,
+        'label': 'data(problems)', 'font-size': 9, 'color': '#2d3748',
+        'text-background-color': '#ffffff', 'text-background-opacity': 0.9,
+        'text-background-padding': 2 } },
+    { selector: 'edge.problems[worst = "mismatch"]', style: {
+        'line-color': 'data(problemColour)', 'width': 6,
+        'label': 'data(problems)', 'font-size': 10, 'color': '#2d3748',
+        'text-background-color': '#ffffff', 'text-background-opacity': 0.9,
+        'text-background-padding': 2 } },
+
     { selector: '.hidden', style: { 'display': 'none' } },
     { selector: ':selected', style: { 'border-color': '#e53e3e', 'border-width': 4 } }
   ]
@@ -164,6 +205,7 @@ function applyLayout(name) {
 
 window.addEventListener('resize', function () { cy.resize(); cy.fit(cy.elements(), 40); });
 applyLayout('cose');
+applyLayer('physical');
 window.setTimeout(function () { cy.resize(); cy.fit(cy.elements(), 40); }, 400);
 
 function syncEdges() {
@@ -179,6 +221,40 @@ document.getElementById('showLabels').onchange = function (e) {
     .style('source-label', on ? 'data(a_iface)' : '')
     .style('target-label', on ? 'data(b_iface)' : '').update();
 };
+function applyLayer(name) {
+  cy.elements().removeClass('ptp problems');
+  if (name !== 'physical') { cy.elements().addClass(name); }
+  const icons = document.getElementById('showIcons');
+  icons.disabled = name !== 'physical';
+  legendFor(name);
+}
+
+function legendFor(name) {
+  const extra = document.getElementById('layerlegend');
+  extra.innerHTML = '';
+  if (name === 'ptp') {
+    Object.keys(PTP_STYLE).forEach(function (role) {
+      if (!role) { return; }
+      const s = document.createElement('span');
+      s.innerHTML = '<i class="dot" style="background:' + PTP_STYLE[role]
+        + '"></i>' + role.toLowerCase();
+      extra.appendChild(s);
+    });
+  } else if (name === 'problems') {
+    ['mismatch', 'warn'].forEach(function (verdict) {
+      const s = document.createElement('span');
+      s.innerHTML = '<i class="line" style="border-top:4px solid '
+        + VERDICT_STYLE[verdict] + '"></i>' + verdict;
+      extra.appendChild(s);
+    });
+  }
+}
+
+Array.prototype.forEach.call(
+  document.querySelectorAll('input[name="layer"]'), function (box) {
+    box.onchange = function (e) { applyLayer(e.target.value); };
+  });
+
 document.getElementById('showIcons').onchange = function (e) {
   cy.nodes().toggleClass('plain', !e.target.checked);
   cy.fit(cy.elements(), 40);
@@ -197,7 +273,33 @@ document.getElementById('filter').oninput = function (e) {
 };
 
 const HIDE = ['colour', 'shape', 'border', 'borderWidth', 'label', 'lineStyle',
-              'width', 'source', 'target', 'icon', 'tint', 'iconW', 'iconH'];
+              'width', 'source', 'target', 'icon', 'tint', 'iconW', 'iconH',
+              'ptpColour', 'problemColour', 'attrs', 'worst'];
+
+function explain(data) {
+  const layers = data.attrs || {};
+  const names = Object.keys(layers).sort();
+  if (!names.length) { return ''; }
+  let out = '<h2>What was checked</h2><table>';
+  names.forEach(function (name) {
+    const layer = layers[name] || {};
+    const verdict = layer.verdict || 'unknown';
+    const colour = VERDICT_STYLE[verdict] || VERDICT_STYLE.unknown;
+    let sides = '';
+    if (layer.a !== undefined || layer.b !== undefined) {
+      sides = ' <span class="muted">' + (layer.a === undefined ? '?' : layer.a)
+        + ' / ' + (layer.b === undefined ? '?' : layer.b) + '</span>';
+    }
+    out += '<tr><td class="k">' + name.toUpperCase() + '</td><td>'
+      + '<b style="color:' + colour + '">' + verdict + '</b>' + sides;
+    if (layer.detail) { out += '<br>' + String(layer.detail); }
+    (layer.evidence || []).forEach(function (line) {
+      out += '<br><span class="muted">- ' + String(line) + '</span>';
+    });
+    out += '</td></tr>';
+  });
+  return out + '</table>';
+}
 const side = document.getElementById('side');
 function rows(obj, title) {
   let out = '<h2>' + title + '</h2><table>';
@@ -217,7 +319,10 @@ function emptyPanel() {
     + TOPOLOGY.nodes.length + ' devices, ' + TOPOLOGY.edges.length + ' links.</p>';
 }
 cy.on('tap', 'node', function (e) { side.innerHTML = rows(e.target.data(), 'Device'); });
-cy.on('tap', 'edge', function (e) { side.innerHTML = rows(e.target.data(), 'Link'); });
+cy.on('tap', 'edge', function (e) {
+  const data = e.target.data();
+  side.innerHTML = explain(data) + rows(data, 'Link');
+});
 cy.on('tap', function (e) { if (e.target === cy) { emptyPanel(); } });
 </script>
 </body>

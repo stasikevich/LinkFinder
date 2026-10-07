@@ -42,6 +42,24 @@ KIND_SIZE = {
 
 ICON_TINT = 0.13
 
+VERDICT_COLOUR = {
+    "mismatch": "#c5221f",
+    "warn": "#bf6a02",
+    "match": "#1a7f37",
+    "unknown": "#9aa4af",
+}
+
+PTP_COLOUR = {
+    "grandmaster": "#6f42c1",
+    "MASTER": "#1a7f37",
+    "SLAVE": "#1f6feb",
+    "LISTENING": "#bf6a02",
+    "PASSIVE": "#bf6a02",
+    "UNCALIBRATED": "#bf6a02",
+    "FAULTY": "#c5221f",
+    "": "#9aa4af",
+}
+
 STATE_BORDER = {
     "scanned": ["#1a1a1a", 2],
     "unreachable": ["#d62728", 3],
@@ -105,6 +123,56 @@ def icon_uris() -> Dict[str, str]:
     return dict(_ICON_CACHE)
 
 
+def _clock_to_mac(identity: str) -> str:
+    from .ptp import clock_identity_to_mac
+
+    return clock_identity_to_mac(identity or "")
+
+
+def ptp_roles(topology: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """What part each device plays in the clock tree, if any.
+
+    A node's own ports say whether it transmits or receives time. Being the
+    grandmaster is decided from the other side: a device is one when somebody
+    else names its clock identity as theirs, which is how a switch that never
+    ran our probe still turns up as the root of the tree.
+    """
+    from .netaddr import normalise_ip  # noqa: F401  (import kept local and cheap)
+    from .ptp import normalise_mac
+
+    by_mac: Dict[str, str] = {}
+    for node in topology.get("nodes", []):
+        mac = normalise_mac(node.get("chassis_id") or "")
+        if mac:
+            by_mac[mac] = node.get("id", "")
+
+    masters: Dict[str, str] = {}
+    out: Dict[str, Dict[str, Any]] = {}
+    for node in topology.get("nodes", []):
+        ports = ((node.get("extra") or {}).get("ptp") or {})
+        states, domains = [], []
+        for port in ports.values():
+            state = (port or {}).get("state") or (port or {}).get("role") or ""
+            if state:
+                states.append(state.upper())
+            if (port or {}).get("domain", -1) >= 0:
+                domains.append(port["domain"])
+            gm = _clock_to_mac((port or {}).get("gm_identity") or "")
+            owner = by_mac.get(normalise_mac(gm)) if gm else ""
+            if owner:
+                masters[owner] = "grandmaster"
+        if states or domains:
+            out[node.get("id", "")] = {
+                "role": "SLAVE" if "SLAVE" in states else
+                        ("MASTER" if "MASTER" in states else
+                         (states[0] if states else "")),
+                "domains": sorted(set(domains)),
+            }
+    for node_id, role in masters.items():
+        out.setdefault(node_id, {"domains": []})["role"] = role
+    return out
+
+
 def node_label(node: Dict[str, Any]) -> str:
     ips = node.get("mgmt_ips") or []
     return (node.get("name") or (ips[0] if ips else "") or node.get("chassis_id")
@@ -113,6 +181,7 @@ def node_label(node: Dict[str, Any]) -> str:
 
 def to_elements(topology: Dict[str, Any]) -> Dict[str, Any]:
     """Topology JSON into the nodes/edges arrays Cytoscape expects."""
+    roles = ptp_roles(topology)
     nodes = []
     for node in topology.get("nodes", []):
         kind = node.get("kind") or "unknown"
@@ -125,16 +194,43 @@ def to_elements(topology: Dict[str, Any]) -> Dict[str, Any]:
         nodes.append({"data": dict(node, label=node_label(node), colour=colour,
                                    shape=shape, border=border, borderWidth=width,
                                    icon=kind, tint=tint(colour), iconW=icon_w,
-                                   iconH=icon_h)})
+                                   iconH=icon_h,
+                                   ptpRole=(roles.get(node.get("id", ""))
+                                            or {}).get("role", ""),
+                                   ptpColour=PTP_COLOUR.get(
+                                       (roles.get(node.get("id", ""))
+                                        or {}).get("role", ""),
+                                       PTP_COLOUR[""]),
+                                   ptpDomains=", ".join(
+                                       str(d) for d in (roles.get(
+                                           node.get("id", "")) or {}).get(
+                                           "domains", [])))})
     edges = []
     for edge in topology.get("edges", []):
         colour, style, width = EDGE_STYLE.get(edge.get("confidence") or "reported",
                                               EDGE_STYLE["reported"])
         label = "%s - %s" % (edge.get("a_iface") or "?", edge.get("b_iface") or "?")
+        attrs = edge.get("attrs") or {}
+        verdicts = [(layer, (data or {}).get("verdict", "unknown"))
+                    for layer, data in sorted(attrs.items())]
+        bad = [name for name, verdict in verdicts if verdict == "mismatch"]
+        warn = [name for name, verdict in verdicts if verdict == "warn"]
+        worst = "mismatch" if bad else ("warn" if warn else
+                                        ("match" if verdicts else "unknown"))
         edges.append({"data": dict(edge, source=edge.get("a"), target=edge.get("b"),
                                    label=label, colour=colour, lineStyle=style,
-                                   width=width)})
+                                   width=width, worst=worst,
+                                   problems=", ".join(
+                                       name.upper() for name in bad + warn),
+                                   problemColour=VERDICT_COLOUR[worst],
+                                   ptpDomain=_edge_domain(edge, attrs))})
     return {"nodes": nodes, "edges": edges}
+
+
+def _edge_domain(edge: Dict[str, Any], attrs: Dict[str, Any]) -> str:
+    layer = attrs.get("ptp") or {}
+    detail = layer.get("a") or ""
+    return str(detail) if detail else ""
 
 
 def summarise(topology: Dict[str, Any]) -> str:
@@ -176,6 +272,8 @@ def render_html(topology: Dict[str, Any], library: Optional[str] = None,
         "__GENERATED__": html.escape(str(topology.get("generated_at") or "-")),
         "__SUMMARY__": html.escape(summarise(topology)),
         "__KIND_STYLE__": embed_json(KIND_STYLE),
+        "__PTP_STYLE__": embed_json(PTP_COLOUR),
+        "__VERDICT_STYLE__": embed_json(VERDICT_COLOUR),
         "__EDGE_STYLE__": embed_json(EDGE_STYLE),
         "__ICONS__": embed_json(icon_uris()),
         "__ELEMENTS__": embed_json(to_elements(topology)),
