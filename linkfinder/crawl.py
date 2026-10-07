@@ -138,6 +138,21 @@ class Crawler:
             candidates.append((mgmt_ip, far.label))
         return candidates
 
+    def _look_for_rings(self) -> None:
+        """Rings are free arithmetic; the bridges are only asked if one exists."""
+        from .loops import blocked_on_rings, cycles, examine
+
+        rings = cycles(self.topology)
+        if not rings:
+            return
+        self.say("  %d ring(s) in the topology - asking those bridges about "
+                 "spanning tree" % len(rings))
+        blocked = blocked_on_rings(
+            self.topology, rings,
+            community=getattr(self.opts, "community", "public"), log=self.say)
+        self.topology.extra["rings"] = examine(self.topology, blocked,
+                                               log=self.say)
+
     def adopt(self, previous: Topology) -> None:
         """Carry an earlier scan forward so a re-run only fills in the gaps."""
         self.topology.merge_from(previous.to_dict()
@@ -255,6 +270,10 @@ class Crawler:
             fold(self.topology, log=self.say)
         except Exception as exc:
             self.say("  lag folding skipped: %s" % exc)
+        try:
+            self._look_for_rings()
+        except Exception as exc:
+            self.say("  ring check skipped: %s" % exc)
         self.topology.stopped_because = self.stopped_because
         return self.topology
 

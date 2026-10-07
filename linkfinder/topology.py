@@ -239,6 +239,7 @@ class Topology:
         self.generated_at = now_stamp()
         self.nodes: Dict[str, Node] = {}
         self.edges: Dict[str, Edge] = {}
+        self.extra: Dict[str, Any] = {}
         self._alias: Dict[str, str] = {}
 
     def resolve(self, node_id: str) -> str:
@@ -422,6 +423,7 @@ class Topology:
             "generated_at": self.generated_at,
             "seed": self.seed,
             "seeds": list(self.seeds),
+            "extra": dict(self.extra),
             "stopped_because": self.stopped_because,
             "nodes": [n.to_dict() for n in self.nodes.values()],
             "edges": [e.to_dict() for e in self.edges.values()],
@@ -482,6 +484,7 @@ class Topology:
                 self.seeds.append(one)
         if not self.seed and self.seeds:
             self.seed = self.seeds[0]
+        self.extra.update(data.get("extra") or {})
         reason = (data.get("stopped_because") or "").strip()
         if reason and reason not in self.stopped_because:
             self.stopped_because = "; ".join(

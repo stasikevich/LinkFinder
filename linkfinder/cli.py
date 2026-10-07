@@ -256,6 +256,10 @@ def build_parser() -> argparse.ArgumentParser:
                       help="write a self-contained Cytoscape page here")
     topo.add_argument("--render-topology", nargs=2, metavar=("JSON", "HTML"),
                       help="only render: turn an existing topology JSON into HTML")
+    topo.add_argument("--loop-check", action="store_true",
+                      help="sample each switch twice to see whether spanning "
+                           "tree is churning right now; off by default "
+                           "because it reads the forwarding table twice")
     topo.add_argument("--diff", nargs=2, metavar=("BEFORE", "AFTER"), default=None,
                       help="compare two topology JSON files and report what moved")
     topo.add_argument("--merge-topology", nargs="+", default=[], metavar="JSON",
@@ -340,6 +344,11 @@ def report_topology(topology, args, label: str = "topology") -> int:
     table = render_topology_table(topology)
     if table:
         print(table)
+    rings = (getattr(topology, "extra", {}) or {}).get("rings") or []
+    if rings:
+        from .loops import render as render_loops
+        print("")
+        print(render_loops(rings))
     print("", file=sys.stderr)
     print(topology.summary(), file=sys.stderr)
     if topology.stopped_because:
@@ -383,6 +392,25 @@ def run_port_health(args, opts, hosts, results=None) -> None:
         print("", file=sys.stderr)
         print("Port health: none of %s answered SNMP (check --community, or name "
               "the switch with --switch)" % ", ".join(specs), file=sys.stderr)
+
+
+def run_loop_report(args, opts, results) -> None:
+    """Rings come free with a topology; the churn sample is asked for."""
+    from .loops import render as render_loops, sample_instability
+    from .port_health import switches_worth_asking
+    from .probe_snmp import build_switches
+
+    churn = []
+    if args.loop_check:
+        for address in switches_worth_asking(results=results,
+                                             explicit=args.switch, targets=[]):
+            switch = build_switches([address], opts.community)[0]
+            if switch.identify():
+                churn.append(sample_instability(switch))
+    text = render_loops([], churn)
+    if text:
+        print("")
+        print(text)
 
 
 def run_ptp_report(results, log=None) -> None:
@@ -519,6 +547,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 print("")
                 print(text)
             break
+    run_loop_report(args, opts, results)
     if args.ptp:
         run_ptp_report(results)
         run_switch_ptp(args, opts, targets, results)
