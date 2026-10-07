@@ -11,6 +11,14 @@ result. Nothing is installed on the target. No agent, no server, no database.
 linkfinder 198.51.100.10 -u root -p secret
 ```
 
+A machine that does not share that password carries its own, ssh-style - and a
+target that cannot be an address is named and skipped rather than reported as
+unreachable:
+
+```bash
+linkfinder 198.51.100.10,root@198.51.100.11,admin:other@198.51.100.12 -u root -p secret
+```
+
 ```text
 TARGET         LOCAL PORT   SWITCH       SWITCH PORT             VLAN  VIA              CHECKS        PTP
 -------------  -----------  -----------  ----------------------  ----  ---------------  ------------  ------------------
@@ -536,6 +544,9 @@ python tests/test_optics.py      # reading a module, and comparing two ends
 python tests/test_diff.py        # what moved between two scans
 python tests/test_ptp_tree.py    # islands, split domains, per-port verdicts
 python tests/test_duplicates.py  # address conflicts, and the stale entry
+python tests/test_targets.py     # per-host logins, and the mistyped address
+python tests/test_loops.py       # rings, and not calling redundancy a loop
+python tests/test_sensors.py     # card temperature, judged on its own limit
 ```
 
 ## Building the .exe
@@ -557,6 +568,7 @@ A running `LinkFinder-GUI.exe` also has to be closed before PyInstaller can repl
 | `linkfinder/decode.py` | LLDP + CDP frame decoding, pcap/pcapng readers |
 | `linkfinder/snmp.py` | SNMPv2c (BER, get/getnext/getbulk walks), stdlib only |
 | `linkfinder/netaddr.py` | which addresses we can actually connect to |
+| `linkfinder/targets.py` | reading a target list, and its per-host logins |
 | `linkfinder/ptp.py` | timing role per port, and naming the far end of a dark cable |
 | `linkfinder/ptp_snmp.py` | the switch side of PTP: RFC 8173, then vendor trees |
 | `linkfinder/ptp_tree.py` | the clock tree per domain, islands and splits |

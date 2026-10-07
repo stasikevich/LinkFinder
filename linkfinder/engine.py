@@ -11,7 +11,7 @@ import os
 import socket
 import sys
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 from . import store
 from .model import Neighbor, ProbeAttempt, TargetResult
@@ -48,6 +48,7 @@ class Options:
     expect_speed: int = 0
     all_interfaces: bool = False
     ptp: bool = True
+    per_host: Dict[str, Creds] = field(default_factory=dict)
 
 
 def load_config() -> Dict[str, object]:
@@ -154,8 +155,27 @@ def _switch_side(target: str, opts: Options, result: TargetResult,
                              target_ip=target, log=say)
 
 
+def creds_for(opts: Options, target: str) -> Creds:
+    """The login this host was given, or the one everything else uses.
+
+    A target written as root@host carries its own; everything else falls back
+    to the shared pair, so the common case of one password for the rack is
+    unchanged.
+    """
+    own = (getattr(opts, "per_host", None) or {}).get(target)
+    if own is None:
+        return opts.ssh
+    return Creds(user=own.user or opts.ssh.user,
+                 password=own.password or opts.ssh.password,
+                 key_file=own.key_file or opts.ssh.key_file,
+                 port=own.port or opts.ssh.port,
+                 sudo_password=own.sudo_password or own.password
+                 or opts.ssh.sudo_password)
+
+
 def discover_one(target: str, opts: Options, log: Optional[Callable[[str], None]] = None) -> TargetResult:
     say = log or (lambda _m: None)
+    ssh_creds = creds_for(opts, target)
     result = TargetResult(target=target)
     say("=== %s ===" % target)
 
@@ -170,7 +190,7 @@ def discover_one(target: str, opts: Options, log: Optional[Callable[[str], None]
             mode = "windows-local"
         elif is_bmc:
             mode = "bmc"
-        elif port_open(target, opts.ssh.port or 22):
+        elif port_open(target, ssh_creds.port or 22):
             mode = "ssh"
         elif port_open(target, opts.bmc_port):
             mode = "bmc"
@@ -178,7 +198,7 @@ def discover_one(target: str, opts: Options, log: Optional[Callable[[str], None]
             mode = "switch"
         else:
             result.error = ("nothing to talk to on %s: no SSH (%d), no HTTPS (%d) and no "
-                            "--switch given" % (target, opts.ssh.port or 22, opts.bmc_port))
+                            "--switch given" % (target, ssh_creds.port or 22, opts.bmc_port))
             return result
         say("auto-selected access path: %s%s"
             % (mode, " (it answers Redfish)" if is_bmc else ""))
@@ -189,7 +209,7 @@ def discover_one(target: str, opts: Options, log: Optional[Callable[[str], None]
             probe_windows_local(result, seconds=opts.seconds, log=say)
         elif mode in ("ssh", "linux", "esxi", "windows"):
             from .probe_linux import run_linux_target
-            got = run_linux_target(target, opts.ssh, want_ifaces=opts.ifaces,
+            got = run_linux_target(target, ssh_creds, want_ifaces=opts.ifaces,
                                    mgmt_only=opts.mgmt_only, seconds=opts.seconds,
                                    ptp=opts.ptp, log=say)
             result.kind = got.kind
@@ -203,12 +223,12 @@ def discover_one(target: str, opts: Options, log: Optional[Callable[[str], None]
                 result.add(nb)
         elif mode == "bmc":
             from .probe_redfish import probe_redfish
-            probe_redfish(target, opts.bmc_user or opts.ssh.user,
-                          opts.bmc_password or opts.ssh.password, result,
+            probe_redfish(target, opts.bmc_user or ssh_creds.user,
+                          opts.bmc_password or ssh_creds.password, result,
                           allow_enable=opts.enable_lldp, log=say, port=opts.bmc_port)
         elif mode == "switch-cli":
             from .probe_switchcli import probe_switch_as_target
-            creds = opts.switch_creds if opts.switch_creds.user else opts.ssh
+            creds = opts.switch_creds if opts.switch_creds.user else ssh_creds
             probe_switch_as_target(target, creds, result, log=say)
         elif mode == "switch":
             result.kind = "switch-side"
@@ -235,8 +255,8 @@ def discover_one(target: str, opts: Options, log: Optional[Callable[[str], None]
         say("SSH refused us, but %s answers Redfish - retrying it as a BMC" % target)
         from .probe_redfish import probe_redfish
         result.error = ""
-        probe_redfish(target, opts.bmc_user or opts.ssh.user,
-                      opts.bmc_password or opts.ssh.password, result,
+        probe_redfish(target, opts.bmc_user or ssh_creds.user,
+                      opts.bmc_password or ssh_creds.password, result,
                       allow_enable=opts.enable_lldp, log=say, port=opts.bmc_port)
 
     unresolved = [n for n in result.neighbors if not n.resolved and n.local_mac]
@@ -327,6 +347,25 @@ def discover_many(targets: List[str], opts: Options,
             for line in buffers[target]:
                 say(line)
     return _finish_results([results[t] for t in targets], opts, log=say)
+
+
+def targets_with_logins(values: List[str], targets_file: str = "",
+                        log: Optional[Callable[[str], None]] = None
+                        ) -> Tuple[List[str], Dict[str, Creds]]:
+    """Addresses worth trying, and the logins any of them carried.
+
+    Anything that cannot be an address or a hostname is dropped here with a
+    reason, rather than being handed to the probes to fail as "nothing to talk
+    to" - which sends a person to check a firewall when the fault is a typo.
+    """
+    from .targets import complain, split
+
+    hosts, logins, bad = split(values, targets_file)
+    if bad and log:
+        for line in complain(bad):
+            log(line)
+    return hosts, {host: Creds(user=user, password=password)
+                   for host, (user, password) in logins.items()}
 
 
 def expand_targets(values: List[str], targets_file: str = "") -> List[str]:

@@ -98,7 +98,7 @@ device is one page now. The site is the other.
 
 | Control | Meaning |
 |---|---|
-| **Target** | Address to scan, or the seed for a map. Several, comma or space separated. The grey example is a hint, not a value - it is never scanned. Enter runs the scan. |
+| **Target** | Address to scan, or the seed for a map. Several, comma or space separated. A host needing its own login is written `root@10.0.0.5` or `admin:secret@10.0.0.5`. The grey example is a hint, not a value - it is never scanned. Enter runs the scan. |
 | **Login / Password** | SSH credentials, reused for a BMC unless the Advanced panel overrides them; the password is also used for `sudo`. With a password set, agent keys are not tried - network devices allow very few auth attempts. |
 | **Scan** | Runs the port lookup for the target. |
 | **Advanced** | Folds out everything you set once: SSH key, BMC credentials, switches and SNMP community, interface filter, MAC, mode, capture seconds, and the three behaviour ticks. |
@@ -181,6 +181,36 @@ been done and how many are queued, and the clock on the right shows elapsed time
 window stays responsive throughout: all network work happens on worker threads.
 
 ## 4. Command line reference
+
+### Targets, and hosts that need their own login
+
+Targets are given on the command line or in `--targets-file`, comma or space
+separated, and a host that does not share the common password carries its own:
+
+```
+10.0.0.5                     uses -u / -p
+root@10.0.0.6                its own user, the shared password
+admin:secret@10.0.0.7        entirely its own
+```
+
+The split is from the right, so a password may contain an `@`; a hostname may
+not. Nothing typed here is written anywhere - it lives for the one run.
+
+Order matters when a host has its own login. Network gear drops the session
+after two or three failed attempts, so the set most likely to work is tried
+first: the host's own, then the shared pair, then anything from `--cred`. A
+user-only override borrows the shared password rather than going without one.
+
+`--cred USER:PASSWORD` is still there for the other shape of the problem -
+several possible passwords and no knowledge of which host takes which. Those
+are tried in turn, and only when the previous one was actively **rejected**; a
+device that simply is not answering does not get attempts spent on it.
+
+**A target that cannot be an address is dropped before anything is tried**, with
+the reason. `198.51.100.1801` is four dotted numbers with one out of range -
+nobody meant to type that, and reporting it as "no SSH, no HTTPS" would send a
+person to check a firewall over an extra digit. Anything containing a letter is
+treated as a hostname and left alone.
 
 ### Targets and access
 

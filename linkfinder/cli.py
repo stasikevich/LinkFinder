@@ -13,7 +13,8 @@ import sys
 from typing import List, Optional
 
 from . import __author__, __copyright__, __license__, __title__, __version__, store
-from .engine import Options, discover_many, expand_targets, load_config
+from .engine import (Options, discover_many, expand_targets, load_config,
+                     targets_with_logins)
 from .model import TargetResult, results_to_json
 from .sshx import Creds
 
@@ -517,12 +518,19 @@ def main(argv: Optional[List[str]] = None) -> int:
         run_gui()
         return 0
 
-    targets = expand_targets(args.targets, args.targets_file)
+    targets, per_host = targets_with_logins(
+        args.targets, args.targets_file,
+        log=lambda m: print(m, file=sys.stderr))
     if not targets:
-        build_parser().print_help()
+        if args.targets or args.targets_file:
+            print("nothing left to scan - every target given was rejected above",
+                  file=sys.stderr)
+        else:
+            build_parser().print_help()
         return 2
 
     opts = options_from_args(args)
+    opts.per_host = per_host
     log = (lambda m: print(m, file=sys.stderr)) if opts.verbose else None
     results = discover_many(targets, opts, log=log)
 

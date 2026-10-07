@@ -21,7 +21,8 @@ from typing import Dict, List, Optional
 
 from . import __author__, __title__, __version__, store
 from .cli import _local_label, render_csv
-from .engine import Options, discover_many, expand_targets, load_config
+from .engine import (Options, discover_many, expand_targets, load_config,
+                     targets_with_logins)
 from .model import TargetResult, results_to_json
 from .sshx import Creds
 
@@ -663,14 +664,19 @@ class App:
         return self.var["targets"].get()
 
     def start(self) -> None:
-        targets = expand_targets([self.targets_text()])
+        targets, per_host = targets_with_logins([self.targets_text()],
+                                                log=self.say)
         if not targets:
-            messagebox.showwarning("Nothing to do", "Enter a target address first.")
+            messagebox.showwarning(
+                "Nothing to do",
+                "Enter a target address first. A host that needs its own "
+                "login can be written as root@10.0.0.5.")
             return
         self.last_error = ""
         self.btn_run.configure(state=tk.DISABLED, text="Scanning")
         self.status.busy("Scanning %s..." % targets[0])
         opts = self.build_options()
+        opts.per_host = per_host
         thread = threading.Thread(target=self._work, args=(targets, opts))
         thread.daemon = True
         thread.start()

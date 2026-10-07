@@ -144,10 +144,21 @@ def collect_via_snmp(target: str, opts,
 AUTH_FAILURE = ("rejected the credentials", "authentication", "did not get us in")
 
 
-def credential_sets(opts) -> List:
-    """The seed credentials first, then any extras, de-duplicated."""
-    sequence = [opts.ssh]
-    seen = {(opts.ssh.user, opts.ssh.password, opts.ssh.key_file)}
+def credential_sets(opts, target: str = "") -> List:
+    """This host's own login first, then the shared one, then any extras.
+
+    Order matters more than it looks: network gear drops the session after a
+    couple of failed attempts, so the set most likely to work has to go first
+    rather than being reached after two rejections.
+    """
+    from .engine import creds_for
+
+    first = creds_for(opts, target) if target else opts.ssh
+    sequence = [first]
+    seen = {(first.user, first.password, first.key_file)}
+    if (opts.ssh.user, opts.ssh.password, opts.ssh.key_file) not in seen:
+        sequence.append(opts.ssh)
+        seen.add((opts.ssh.user, opts.ssh.password, opts.ssh.key_file))
     for extra in (getattr(opts, "cred_list", None) or []):
         mark = (extra.user, extra.password, extra.key_file)
         if extra and mark not in seen:
@@ -172,7 +183,7 @@ def collect_device(target: str, opts, log: Optional[Callable[[str], None]] = Non
     if quick is not None:
         return quick
 
-    attempts = credential_sets(opts)
+    attempts = credential_sets(opts, target)
     view = DeviceView(target=target, reachable=False, mgmt_ips=[target],
                       error="no credentials to try")
     for index, creds in enumerate(attempts):
