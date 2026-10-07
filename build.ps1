@@ -6,6 +6,15 @@
 Set-Location $PSScriptRoot
 $ErrorActionPreference = "Continue"
 
+# PyInstaller cannot overwrite a binary that is still running, and the failure
+# it reports is a bare exit code 1 with nothing to say why. Stop them by name:
+# matching on a window title misses a process whose window has not appeared.
+foreach ($name in @("LinkFinder-GUI", "linkfinder")) {
+    Get-Process -Name $name -ErrorAction SilentlyContinue |
+        Stop-Process -Force -ErrorAction SilentlyContinue
+}
+Start-Sleep -Milliseconds 400
+
 function Invoke-Step($label, [scriptblock]$body) {
     Write-Host "== $label"
     & $body
