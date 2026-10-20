@@ -22,8 +22,8 @@ def check(label, got, want):
     print("%-64s %s" % (label, "ok" if got == want else "FAIL"))
 
 
-FALCON = "000580.fffe.08355b"
-OTHER_GM = "008015.fffe.4290d0"
+GM_ONE = "025566.fffe.000001"
+OTHER_GM = "02aabb.fffe.000002"
 
 
 def host(name, ports):
@@ -50,13 +50,13 @@ def host(name, ports):
 
 print("-- one grandmaster, everybody following it --")
 simple = [host("node-a", {"f2": {"clock": "020000.fffe.00000a", "state": "SLAVE",
-                                 "gm": FALCON}}),
+                                 "gm": GM_ONE}}),
           host("node-b", {"f3": {"clock": "020000.fffe.00000b", "state": "SLAVE",
-                                 "gm": FALCON}})]
+                                 "gm": GM_ONE}})]
 domains = build(simple)
 check("one domain found", sorted(domains), [24])
-check("one external grandmaster", domains[24].external_grandmasters(), [FALCON])
-check("with both followers", len(domains[24].followers[FALCON]), 2)
+check("one external grandmaster", domains[24].external_grandmasters(), [GM_ONE])
+check("with both followers", len(domains[24].followers[GM_ONE]), 2)
 check("no islands", domains[24].islands(), [])
 check("and nothing to complain about", problems(domains), [])
 
@@ -77,7 +77,7 @@ check("the tree says whose segment it is",
 print()
 print("-- two external grandmasters under one domain number --")
 split = [host("node-a", {"f2": {"clock": "020000.fffe.00000a", "state": "SLAVE",
-                                "gm": FALCON}}),
+                                "gm": GM_ONE}}),
          host("node-c", {"f0": {"clock": "020000.fffe.00000c", "state": "SLAVE",
                                 "gm": OTHER_GM}})]
 domains = build(split)
@@ -85,7 +85,7 @@ found = problems(domains)
 check("caught", len(found), 1)
 check("named", found[0]["kind"], "split domain")
 check("at high confidence", found[0]["confidence"], "high")
-check("listing both", sorted([FALCON, OTHER_GM]),
+check("listing both", sorted([GM_ONE, OTHER_GM]),
       sorted(domains[24].external_grandmasters()))
 check("with who follows which", len(found[0]["evidence"]), 2)
 check("and it is a domain finding, not a port one", "where" in found[0], False)
@@ -93,14 +93,14 @@ check("and it is a domain finding, not a port one", "where" in found[0], False)
 mixed = [host("node-a", {"f0": {"clock": "020000.fffe.000008", "state": "MASTER",
                                 "gm": "020000.fffe.000008", "steps": 0},
                          "f2": {"clock": "020000.fffe.00000a", "state": "SLAVE",
-                                "gm": FALCON}})]
+                                "gm": GM_ONE}})]
 check("an island alongside one real grandmaster is not a split",
       problems(build(mixed)), [])
 
 print()
 print("-- what belongs on a port --")
 drifting = [host("node-a", {"f2": {"clock": "020000.fffe.00000a", "state": "SLAVE",
-                                   "gm": FALCON, "offset": 4200}})]
+                                   "gm": GM_ONE, "offset": 4200}})]
 domains = build(drifting)
 found = problems(domains)
 check("an offset past the threshold is caught", found[0]["kind"], "offset")
@@ -108,7 +108,7 @@ check("and belongs to its port", found[0]["where"], "node-a f2")
 check("a tight offset is not", problems(build(simple)), [])
 
 holdover = [host("node-a", {"f2": {"clock": "020000.fffe.00000a", "state": "SLAVE",
-                                   "gm": FALCON, "gm_class": 7}})]
+                                   "gm": GM_ONE, "gm_class": 7}})]
 found = problems(build(holdover))
 check("a grandmaster in holdover is caught", found[0]["kind"],
       "grandmaster not locked")
@@ -119,7 +119,7 @@ check("class 6 is locked and says nothing",
       [])
 
 adrift = [host("node-a", {"f2": {"clock": "020000.fffe.00000a", "state": "SLAVE",
-                                 "gm": FALCON, "traceable": False}})]
+                                 "gm": GM_ONE, "traceable": False}})]
 found = problems(build(adrift))
 check("time that is not traceable is caught", found[0]["kind"], "not traceable")
 check("at medium confidence - it may be deliberate", found[0]["confidence"],
@@ -134,7 +134,7 @@ wide = [host("node-a", {"f0": {"clock": "020000.fffe.000008", "state": "MASTER",
                         "f1": {"clock": "020000.fffe.000009", "state": "MASTER",
                                "gm": "020000.fffe.000009", "steps": 0},
                         "f2": {"clock": "020000.fffe.00000a", "state": "SLAVE",
-                               "gm": FALCON}}),
+                               "gm": GM_ONE}}),
         host("node-c", {"f0": {"clock": "020000.fffe.00000c", "state": "SLAVE",
                                "gm": OTHER_GM}})]
 domains = build(wide)
@@ -158,7 +158,7 @@ check("the domain is a heading", text.startswith("PTP, domain 24"), True)
 check("the split is in it", "SPLIT DOMAIN" in text, True)
 check("a grandmaster can be named when we know it",
       "sw-core-1" in render(build(split),
-                            name_of=lambda c: "sw-core-1" if c == FALCON else ""),
+                            name_of=lambda c: "sw-core-1" if c == GM_ONE else ""),
       True)
 check("nothing in, nothing out", render({}), "")
 check("a run with no PTP at all builds no domains", build([]), {})

@@ -133,15 +133,22 @@ def check_speed(local: Any, remote: Any) -> Dict[str, Any]:
                          "remote link speed %d Mb/s" % b]}
 
 
-def check_lacp(local_bond: Any, remote_aggregator: Any) -> Dict[str, Any]:
+def check_lacp(local_bond: Any, remote_aggregator: Any,
+               asked: bool = True) -> Dict[str, Any]:
     """Which bundle each end thinks this cable belongs to.
 
     Neither side having one is the common case and says nothing, so it is not
     reported at all. One side bundled and the other not is worth seeing: a
     bond member landing on a plain access port is a real and quiet fault.
+
+    Only when the far end was actually read. Without `asked` this fired on
+    the ABSENCE of evidence: with no switch walked, every bonded port on
+    every host was warned about, which is a check that cannot pass.
     """
     a = (local_bond or "").strip()
     b = (remote_aggregator or "").strip()
+    if not asked and not b:
+        return {"verdict": VERDICT_UNKNOWN}
     if not a and not b:
         return {"verdict": VERDICT_UNKNOWN}
     if a and b:
@@ -188,7 +195,7 @@ def compare(neighbor, remote: Optional[Dict[str, Any]],
         "speed": check_speed(getattr(neighbor, "local_speed", ""),
                              remote.get("speed_mbps")),
         "lacp": check_lacp(getattr(neighbor, "local_parent", ""),
-                           remote.get("aggregator")),
+                           remote.get("aggregator"), asked=bool(remote)),
         "stp": _check_stp(remote.get("stp")),
     }
 
@@ -264,6 +271,25 @@ def remote_ports(switch, names: List[str],
         out[name] = {"ifindex": index, "mtu": mtus.get(index),
                      "speed_mbps": speeds.get(index), "oper": opers.get(index),
                      "pvid": pvids.get(index)}
+    return out
+
+
+def stamp_sides(checks, a_node: str, b_node: str):
+    """Record which device each side of a comparison belongs to.
+
+    A check is computed from one device looking outward, so its "a" is always
+    that device. An edge stores its two ends sorted by node id, which has
+    nothing to do with who did the looking - so without this the panel can
+    print the local MTU under the remote device's name and be believed.
+    """
+    if not checks:
+        return checks
+    out = {}
+    for name, layer in checks.items():
+        if isinstance(layer, dict):
+            out[name] = dict(layer, a_node=a_node, b_node=b_node)
+        else:
+            out[name] = layer
     return out
 
 

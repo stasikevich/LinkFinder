@@ -179,12 +179,12 @@ check("summary reads", t.summary(), "1 device(s) [1 scanned], 0 link(s) [-]")
 print()
 print("-- one box answering under two chassis MACs, joined by its serial --")
 t = Topology()
-t.add_node(chassis_id="f4:1e:57:c9:a5:3e", name="CRS518", serial="K2YF-0TEF")
-t.add_node(chassis_id="f4:1e:57:c9:a5:49", name="CRS518", serial="K2YF-0TEF",
+t.add_node(chassis_id="aa:bb:cc:dd:ee:61", name="CRS518", serial="SERIAL-0001")
+t.add_node(chassis_id="aa:bb:cc:dd:ee:62", name="CRS518", serial="SERIAL-0001",
            mgmt_ip="10.0.0.9")
 check("serial folds them into one", len(t.nodes), 1)
 check("and the address is kept", list(t.nodes.values())[0].mgmt_ips, ["10.0.0.9"])
-t.add_node(chassis_id="f4:1e:57:c9:a5:77", name="other", serial="ABC")
+t.add_node(chassis_id="aa:bb:cc:dd:ee:63", name="other", serial="ABC")
 check("a short serial is not trusted", len(t.nodes), 2)
 
 print()
@@ -220,6 +220,88 @@ print("-- the stop reason travels in the file --")
 t = Topology(seed="10.0.0.1")
 t.stopped_because = "depth limit reached (2)"
 check("serialised", json.loads(t.to_json())["stopped_because"], "depth limit reached (2)")
+
+print("-- a neighbour named by a port MAC is not a new device --")
+# A switch names the far end by the MAC of the port it sees. That is not the
+# host's chassis id, so the same server used to arrive once per cable as a
+# nameless box and its links could never be confirmed from both ends.
+t = Topology(seed="198.51.100.5")
+host = t.add_node(mgmt_ip="198.51.100.5", name="server1", kind="host",
+                  state=STATE_SCANNED,
+                  extra={"macs": {"eno1": "00:00:5e:00:53:11",
+                                  "eno2": "00:00:5e:00:53:12"}})
+sw = t.add_node(chassis_id="00:00:5e:00:53:a0", name="switch", kind="switch",
+                state=STATE_SCANNED)
+ghost = t.add_node(chassis_id="00:00:5e:00:53:12", kind="unknown")
+t.add_edge(a=sw.id, a_iface="1/1/4", b=ghost.id, b_iface="00-00-5E-00-53-12",
+           proto="LLDP", source="snmp", reported_by=sw.id)
+check("the ghost arrived as its own device", len(t.nodes), 3)
+check("folding recognises it", t.fold_known_macs(), 1)
+check("and it is gone", len(t.nodes), 2)
+check("the host is the one kept", host.id in t.nodes, True)
+check("the host did not inherit a port MAC as its chassis",
+      t.nodes[host.id].chassis_id, "")
+link = list(t.edges.values())[0]
+check("the link now lands on the host",
+      sorted([link.a, link.b]), sorted([sw.id, host.id]))
+check("and the port has the name its owner uses",
+      link.a_iface if link.a == host.id else link.b_iface, "eno2")
+check("folding again changes nothing", t.fold_known_macs(), 0)
+check("a device we scanned is never folded away",
+      t.nodes[sw.id].state, STATE_SCANNED)
+
+print()
+print("-- a bond leg announces an address its host does not answer on --")
+# Measured on a live pair: a bond rewrites every leg to one address, but each
+# leg still sends LLDP with its burned-in one. Matching only the running
+# address turned a two-leg bond into two nameless Supermicro boxes beside the
+# server they belong to.
+t = Topology(seed="198.51.100.9")
+server = t.add_node(mgmt_ip="198.51.100.9", name="fedora", kind="host",
+                    state=STATE_SCANNED,
+                    extra={"macs": {"enp1": "00:00:5e:00:53:b5",
+                                    "enp2": "00:00:5e:00:53:b5"},
+                           "perm_macs": {"enp1": "00:00:5e:00:53:b6",
+                                         "enp2": "00:00:5e:00:53:b7"}})
+far = t.add_node(mgmt_ip="198.51.100.8", name="parallel", kind="host",
+                 state=STATE_SCANNED, extra={"macs": {"ens1f0": "00:00:5e:00:53:c0"}})
+for leg, port in (("00:00:5e:00:53:b6", "ens1f0"), ("00:00:5e:00:53:b7", "ens1f1")):
+    heard = t.add_node(chassis_id=leg, kind="host")
+    t.add_edge(a=heard.id, a_iface=leg, b=far.id, b_iface=port,
+               proto="LLDP", source="networkctl", reported_by=far.id)
+check("both legs arrived as their own devices", len(t.nodes), 4)
+check("folding recognises both", t.fold_known_macs(), 2)
+check("two devices are left, not four", len(t.nodes), 2)
+check("and the cables land on the server",
+      all(sorted([e.a, e.b]) == sorted([server.id, far.id])
+          for e in t.edges.values()), True)
+check("each one naming the leg its owner uses",
+      sorted(e.a_iface if e.a == server.id else e.b_iface
+             for e in t.edges.values()), ["enp1", "enp2"])
+
+print()
+print("-- a host and its own hostname, reported by a neighbour, are one node --")
+# A switch lists a Windows host by its system-name (it offers no stable MAC
+# chassis), so the scanned host and that bare neighbour used to stand up as two.
+t = Topology(seed="10.0.0.5")
+t.add_node(mgmt_ip="10.0.0.5", name="DESKTOP-UO8HKRI", kind="windows", state=STATE_SCANNED)
+t.add_node(chassis_id="desktop-uo8hkri", name="desktop-uo8hkri", state=STATE_UNSCANNED)
+check("host then its name-neighbour merge to one", len(t.nodes), 1)
+only = list(t.nodes.values())[0]
+check("the kept node is the scanned host", only.state, STATE_SCANNED)
+check("and it keeps its address", only.mgmt_ips, ["10.0.0.5"])
+
+t = Topology(seed="10.0.0.5")
+t.add_node(chassis_id="desktop-uo8hkri", name="desktop-uo8hkri", state=STATE_UNSCANNED)
+t.add_node(mgmt_ip="10.0.0.5", name="DESKTOP-UO8HKRI", kind="windows", state=STATE_SCANNED)
+check("name-neighbour then host also merge to one", len(t.nodes), 1)
+
+# The guard: two real, addressed devices that merely share a name stay apart.
+t = Topology(seed="x")
+t.add_node(mgmt_ip="10.0.0.1", name="sw1", kind="switch")
+t.add_node(mgmt_ip="10.0.0.2", name="sw1", kind="switch")
+check("two addressed devices of one name stay two", len(t.nodes), 2)
+
 
 print()
 if FAILURES:

@@ -10,6 +10,7 @@ import os
 import re
 import shlex
 import socket
+import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
@@ -33,12 +34,16 @@ LEGACY_CIPHERS = ["aes128-cbc", "aes192-cbc", "aes256-cbc", "3des-cbc"]
 class Iface:
     name: str
     mac: str = ""
+    perm_mac: str = ""
     operstate: str = ""
     speed: str = ""
     physical: bool = False
     master: str = ""
     carrier: str = ""
     mtu: str = ""
+    kind: str = ""
+    pci: str = ""
+    netns: str = ""
     lowers: List[str] = field(default_factory=list)
     addrs: List[str] = field(default_factory=list)
 
@@ -56,6 +61,10 @@ class Creds:
     key_file: str = ""
     port: int = 22
     sudo_password: str = ""
+    # Some accounts cannot sudo and reach root only through `su` with a
+    # different password - common on appliance operating accounts. When this
+    # is set, privileged commands go through su instead of sudo.
+    become_password: str = ""
 
     def sudo_pw(self) -> str:
         return self.sudo_password or self.password
@@ -83,6 +92,12 @@ class Ssh:
     def connect(self) -> None:
         """Network gear allows very few auth attempts and then drops the session, so
         when a password is given do not let paramiko burn them on agent keys first."""
+        # Never connect without a username: paramiko then falls back to the
+        # local account running the tool and quietly tries THAT on the lab
+        # host, which both leaks the operator's name and wastes an attempt.
+        if not self.creds.user:
+            raise SshError("SSH needs a username and none was given - refusing to "
+                           "fall back to the local account")
         have_password = bool(self.creds.password)
         have_key = bool(self.creds.key_file)
         kwargs = dict(username=self.creds.user or None, port=self.creds.port,
@@ -126,7 +141,7 @@ class Ssh:
             setattr(transport, attribute,
                     current + [a for a in extra if a not in current])
         transport.start_client(timeout=self.timeout)
-        user = self.creds.user or os.environ.get("USERNAME") or "admin"
+        user = self.creds.user          # connect() already refused an empty one
         if self.creds.key_file:
             key = paramiko.RSAKey.from_private_key_file(os.path.expanduser(self.creds.key_file))
             transport.auth_publickey(user, key)
@@ -146,7 +161,7 @@ class Ssh:
             out = sout.read().decode("utf-8", "replace")
             err = serr.read().decode("utf-8", "replace")
             return sout.channel.recv_exit_status(), out, err
-        except (paramiko.SSHException, socket.timeout, socket.error) as exc:
+        except (paramiko.SSHException, socket.timeout, socket.error, AttributeError) as exc:
             return 255, "", str(exc)
 
     def run_bytes(self, cmd: str, timeout: int = 120) -> Tuple[int, bytes, str]:
@@ -155,7 +170,7 @@ class Ssh:
             out = sout.read()
             err = serr.read().decode("utf-8", "replace")
             return sout.channel.recv_exit_status(), out, err
-        except (paramiko.SSHException, socket.timeout, socket.error) as exc:
+        except (paramiko.SSHException, socket.timeout, socket.error, AttributeError) as exc:
             return 255, b"", str(exc)
 
     @property
@@ -169,6 +184,8 @@ class Ssh:
         """Run with privileges. No pty is used, so stdout stays byte-clean."""
         if self.is_root:
             return self.run(cmd, timeout=timeout)
+        if self.creds.become_password:
+            return self._su(cmd, timeout=timeout)
         wrapped = "sudo -S -p '' sh -c %s" % shlex.quote(cmd)
         try:
             sin, sout, serr = self.client.exec_command(wrapped, timeout=timeout)
@@ -179,8 +196,59 @@ class Ssh:
             out = sout.read().decode("utf-8", "replace")
             err = serr.read().decode("utf-8", "replace")
             return sout.channel.recv_exit_status(), out, err
-        except (paramiko.SSHException, socket.timeout, socket.error) as exc:
+        except (paramiko.SSHException, socket.timeout, socket.error, AttributeError) as exc:
             return 255, "", str(exc)
+
+    def _su(self, cmd: str, timeout: int = 120) -> Tuple[int, str, str]:
+        """Become root through `su`, for an account that cannot sudo.
+
+        su reads its password from the controlling terminal, not stdin, so
+        this is the one place a pty is unavoidable. A pty turns newlines into
+        CRLF and echoes the prompt, so the real output is fenced between two
+        markers and only what lies between them is returned - the fence makes
+        the result as clean as the no-pty path, byte for byte once the CR is
+        dropped. The command's own exit status is carried out in the fence.
+        """
+        begin, end = "__LF_SU_8f3a__", "__LF_SU_END_8f3a__"
+        inner = "echo %s; { %s; }; echo %s$?" % (begin, cmd, end)
+        wrapped = "su - -c %s" % shlex.quote(inner)
+        try:
+            chan = self.client.get_transport().open_session(timeout=timeout)
+            chan.get_pty()
+            chan.settimeout(1.0)
+            chan.exec_command(wrapped)
+            chan.sendall(self.creds.become_password + "\n")
+            buf = bytearray()
+            # Stop at the fence, not at channel EOF. The pty keeps the session
+            # open after `su -c` exits, so waiting for the channel to close spent
+            # the WHOLE timeout on every sudo'd command - the dominant cost of a
+            # BBU scan. The end marker and the command's exit code after it are
+            # the last thing printed, so read until those have arrived.
+            fence = re.compile(re.escape(end) + r"\s*\d+")
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                try:
+                    chunk = chan.recv(65536)
+                except socket.timeout:
+                    if chan.exit_status_ready() and not chan.recv_ready():
+                        break
+                    continue
+                if not chunk:
+                    break
+                buf.extend(chunk)
+                if fence.search(buf.decode("utf-8", "replace")):
+                    break
+            text = buf.decode("utf-8", "replace").replace("\r", "")
+        except (paramiko.SSHException, socket.timeout, socket.error, AttributeError) as exc:
+            return 255, "", str(exc)
+        if begin not in text or end not in text:
+            # No fence came back: almost always su refusing the password.
+            return 1, "", "su did not accept the password"
+        body = text.split(begin, 1)[1]
+        body, _sep, tail = body.partition(end)
+        digits = re.match(r"\s*(\d+)", tail)       # the $? printed after the fence
+        code = int(digits.group(1)) if digits else 0
+        return code, body.lstrip("\n"), ""
 
     def have(self, tool: str) -> bool:
         if tool not in self._have:
@@ -224,8 +292,37 @@ for d in /sys/class/net/*; do
     b=${l##*/lower_}; low="$low,$b"
   done
   echo "IF|$n|$mac|$st|$sp|$phy|$mas|$car|${low#,}|$mtu"
+  # A bond rewrites every leg's address to one value, but the leg still
+  # ANNOUNCES its burned-in one over LLDP. Without this the far end names a
+  # MAC the host does not admit to owning, and one server becomes three.
+  [ -r "$d/bonding_slave/perm_hwaddr" ]     && echo "PERM|$n|$(cat "$d/bonding_slave/perm_hwaddr" 2>/dev/null)"
+  [ -d "$d/bonding" ] && echo "KIND|$n|bond"
+  [ -d "$d/bridge" ] && echo "KIND|$n|bridge"
+  [ -d "$d/team" ] && echo "KIND|$n|team"
+done
+for d in /sys/class/net/*/bonding; do
+  [ -d "$d" ] || continue
+  b=${d%/bonding}; b=${b##*/}
+  for k in mode xmit_hash_policy lacp_rate miimon slaves active_slave \
+           ad_partner_mac ad_num_ports; do
+    [ -f "$d/$k" ] && echo "BOND|$b|$k|$(cat "$d/$k" 2>/dev/null)"
+  done
+  for s in $(cat "$d/slaves" 2>/dev/null); do
+    sd=/sys/class/net/$s/bonding_slave
+    echo "LEG|$b|$s|$(cat "$sd/mii_status" 2>/dev/null)|$(cat "$sd/link_failure_count" 2>/dev/null)"
+  done
+done
+for f in /proc/net/bonding/*; do
+  [ -f "$f" ] || continue
+  b=${f##*/}
+  sed "s|^|PROC\|$b\||" "$f" 2>/dev/null
 done
 ip -o addr show 2>/dev/null | awk '{print "ADDR|" $2 "|" $4}'
+for f in sys_vendor product_name; do
+  v=$(cat /sys/class/dmi/id/$f 2>/dev/null)
+  [ -n "$v" ] && echo "DMI|$f|$v"
+done
+command -v systemd-detect-virt >/dev/null 2>&1 && echo "VIRT|$(systemd-detect-virt 2>/dev/null)"
 """
 
 
@@ -241,11 +338,109 @@ def parse_ifaces(text: str) -> Dict[str, Iface]:
                 physical=parts[5] == "1", master=parts[6], carrier=parts[7],
                 lowers=[x for x in parts[8].split(",") if x],
                 mtu=parts[9] if len(parts) > 9 else "")
+        elif parts[0] == "PERM" and len(parts) >= 3:
+            if parts[1] in out:
+                out[parts[1]].perm_mac = parts[2]
+        elif parts[0] == "KIND" and len(parts) >= 3:
+            if parts[1] in out:
+                out[parts[1]].kind = parts[2]
         elif parts[0] == "ADDR" and len(parts) >= 3:
             name = parts[1].split("@")[0]
             if name in out:
                 out[name].addrs.append(parts[2])
     return out
+
+
+PROC_BOND_KEYS = {
+    "bonding mode": "mode",
+    "transmit hash policy": "xmit_hash_policy",
+    "lacp rate": "lacp_rate",
+    "mii polling interval (ms)": "miimon",
+    "min links": "min_links",
+    "currently active slave": "active_slave",
+    "partner mac address": "ad_partner_mac",
+    "number of ports": "ad_num_ports",
+    "system mac address": "actor_mac",
+}
+
+PROC_LEG_KEYS = {
+    "mii status": "mii",
+    "link failure count": "failures",
+    "speed": "speed",
+    "duplex": "duplex",
+    "aggregator id": "aggregator",
+    "actor churn state": "actor_churn",
+    "partner churn state": "partner_churn",
+}
+
+
+def parse_proc_bonding(text: str) -> Dict[str, dict]:
+    """The kernel's own account of each bond, out of /proc/net/bonding.
+
+    Richer than sysfs, and the place the kernel documents: it names the LACP
+    partner, the aggregator each leg joined, and the churn state - whether
+    the negotiation ever settled. A leg that is up but churning carries
+    nothing, and no other field in a bond's output says so.
+
+    Lines arrive prefixed with PROC|<bond>| because the whole transport here
+    is one record per line.
+    """
+    bonds: Dict[str, dict] = {}
+    inside_leg: Dict[str, bool] = {}
+    for raw in text.splitlines():
+        parts = raw.split("|", 2)
+        if len(parts) < 3 or parts[0] != "PROC":
+            continue
+        name, line = parts[1], parts[2].rstrip()
+        bond = bonds.setdefault(name, {"name": name, "legs": []})
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.lower().startswith("slave interface:"):
+            bond["legs"].append({"name": stripped.split(":", 1)[1].strip()})
+            inside_leg[name] = True
+            continue
+        if ":" not in stripped:
+            continue
+        key, _sep, value = stripped.partition(":")
+        key, value = key.strip().lower(), value.strip()
+        if not value:
+            continue
+        if inside_leg.get(name) and bond["legs"]:
+            field = PROC_LEG_KEYS.get(key)
+            if field:
+                bond["legs"][-1][field] = value
+                continue
+        field = PROC_BOND_KEYS.get(key)
+        if field and field not in bond:
+            bond[field] = value
+    return bonds
+
+
+def parse_bonds(text: str) -> Dict[str, dict]:
+    """What each bond is set to, and how its legs are doing.
+
+    Membership alone only says a bond exists. The mode says what the switch
+    has to be configured as, and the partner MAC says whether LACP is
+    negotiating at all - a bond in 802.3ad whose partner is all zeros is not
+    bonding, it is two cables pretending to be one.
+    """
+    bonds: Dict[str, dict] = {}
+    for line in text.splitlines():
+        parts = line.strip().split("|")
+        if parts[0] == "BOND" and len(parts) >= 4:
+            bond = bonds.setdefault(parts[1], {"name": parts[1], "legs": []})
+            bond[parts[2]] = parts[3].strip()
+        elif parts[0] == "LEG" and len(parts) >= 4:
+            bond = bonds.setdefault(parts[1], {"name": parts[1], "legs": []})
+            bond["legs"].append({"name": parts[2], "mii": parts[3],
+                                 "failures": parts[4] if len(parts) > 4 else ""})
+    # /proc is the kernel describing itself and says more than sysfs, so it
+    # wins where both exist; sysfs remains the answer on a kernel without it.
+    for name, richer in parse_proc_bonding(text).items():
+        if richer.get("legs") or len(richer) > 2:
+            bonds[name] = richer
+    return bonds
 
 
 def iface_for_ip(ifaces: Dict[str, Iface], ip: str) -> str:

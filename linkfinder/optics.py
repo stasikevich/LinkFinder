@@ -15,6 +15,7 @@ Copyright (c) 2026 Stas Mitin. SPDX-License-Identifier: MIT
 """
 from __future__ import annotations
 
+import math
 import re
 from typing import Any, Callable, Dict, List, Optional
 
@@ -31,7 +32,11 @@ MEDIA_BY_FORM = {
     "CR": COPPER, "T": COPPER, "CX": COPPER,
 }
 
-FORM = re.compile(r"\b(\d+)?\s*BASE[- ]?(SR|SX|LRM|LR|LX|ER|ZR|LH|CR|CX|T)\b", re.I)
+# The trailing (?:\d+)? is the lane count: a 40G or 100G module calls itself
+# Base-LR4 or Base-SR4, and without it the whole type line failed to match -
+# so seven QSFP+ ports on one bench reported no speed, form or media at all.
+FORM = re.compile(
+    r"\b(\d+)?\s*BASE[- ]?(SR|SX|LRM|LR|LX|ER|ZR|LH|CR|CX|T)(?:\d+)?\b", re.I)
 SPEED = re.compile(r"\b(\d+)\s*G\b", re.I)
 NUMBER = re.compile(r"(-?\d+(?:\.\d+)?)")
 
@@ -59,6 +64,8 @@ FIELDS = {
 NUMERIC = ("wavelength_nm", "reach_smf_km", "reach_om3_m", "reach_copper_m",
            "nominal_br_mbd", "temperature_c", "voltage_v", "tx_dbm", "rx_dbm")
 
+POWER = ("tx_dbm", "rx_dbm")
+
 
 def _number(text: str) -> Optional[float]:
     match = NUMBER.search(text or "")
@@ -66,6 +73,44 @@ def _number(text: str) -> Optional[float]:
         return None
     value = float(match.group(1))
     return int(value) if value == int(value) else value
+
+
+# ethtool prints optical power twice - "0.5829 mW / -2.35 dBm" on most builds,
+# and plain dBm on a few. Reading the first number got the milliwatts and filed
+# them as dBm, which made every transceiver in a real lab look as if it were
+# driving the fibre far harder than its own specification allows.
+IN_DBM = re.compile(r"(-?\d+(?:\.\d+)?)\s*dBm", re.I)
+IN_MW = re.compile(r"(-?\d+(?:\.\d+)?)\s*mW", re.I)
+
+
+def _power_dbm(text: str) -> Optional[float]:
+    """The reading in dBm, however this build of ethtool chose to print it."""
+    said = IN_DBM.search(text or "")
+    if said:
+        try:
+            return round(float(said.group(1)), 4)
+        except ValueError:
+            return None
+    watts = IN_MW.search(text or "")
+    if watts:
+        try:
+            milliwatts = float(watts.group(1))
+        except ValueError:
+            return None
+        if milliwatts > 0:
+            return round(10.0 * math.log10(milliwatts), 4)
+        return None            # a dark laser: no power is not a small power
+    return _number(text)
+
+
+def _power_mw(text: str) -> Optional[float]:
+    watts = IN_MW.search(text or "")
+    if watts:
+        try:
+            return float(watts.group(1))
+        except ValueError:
+            return None
+    return None
 
 
 def parse_ethtool_m(text: str) -> Dict[str, Any]:
@@ -89,7 +134,13 @@ def parse_ethtool_m(text: str) -> Dict[str, Any]:
         field = FIELDS.get(key)
         if not field or not value:
             continue
-        out[field] = _number(value) if field in NUMERIC else value
+        if field in POWER:
+            out[field] = _power_dbm(value)
+            watts = _power_mw(value)
+            if watts is not None:
+                out[field.replace("_dbm", "_mw")] = watts
+        else:
+            out[field] = _number(value) if field in NUMERIC else value
     if types:
         out["types"] = types
         out.update(_classify(types))

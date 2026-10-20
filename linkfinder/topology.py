@@ -13,10 +13,11 @@ Copyright (c) 2026 Stas Mitin. SPDX-License-Identifier: MIT
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional
 
 SCHEMA_VERSION = 1
 
@@ -48,13 +49,22 @@ BAD_VERDICTS = (VERDICT_MISMATCH, VERDICT_WARN)
 CONFIDENCE_REPORTED = "reported"
 CONFIDENCE_CONFIRMED = "confirmed"
 
-DISCOVERY_PROTOS = ("LLDP", "CDP", "MNDP/LLDP")
+DISCOVERY_PROTOS = ("LLDP", "CDP", "MNDP/LLDP", "usb")
+"""A link one end actually told us about. USB belongs here: the host
+enumerated the device on its own bus, which is a reading, not a guess -
+only the second, independent report makes a link confirmed."""
 IPV4_RE = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
 HEXSEP_RE = re.compile(r"^[0-9a-fA-F][0-9a-fA-F:.\- ]*[0-9a-fA-F]$")
 
 
 def now_stamp() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _is_mac_like(value: str) -> bool:
+    """A 6-octet MAC in colon form (after normalising), not a hostname."""
+    return bool(re.fullmatch(r"[0-9a-f]{2}(:[0-9a-f]{2}){5}",
+                             str(value or "").strip().lower()))
 
 
 def normalise_chassis_id(value: str, subtype: str = "") -> str:
@@ -84,6 +94,19 @@ def is_mac_chassis(normalised: str) -> bool:
     return bool(re.fullmatch(r"([0-9a-f]{2}:){5}[0-9a-f]{2}", normalised or ""))
 
 
+JUST_AN_ADDRESS = re.compile(r"^[0-9a-fA-F]{2}([:-][0-9a-fA-F]{2}){5}$")
+
+
+def _names_something(text: str) -> bool:
+    """Whether this reads as a name at all, as opposed to an address.
+
+    "Longer is better" let a hardware address beat a hostname, so a server
+    with a short name was relabelled with twelve hex digits the moment one
+    of its bond legs folded into it.
+    """
+    return not JUST_AN_ADDRESS.match((text or "").strip())
+
+
 def _best(current: str, candidate: str) -> str:
     """Keep the more informative of two values; never let blank win."""
     candidate = (candidate or "").strip()
@@ -94,6 +117,8 @@ def _best(current: str, candidate: str) -> str:
         return candidate
     if candidate.lower() == current.lower():
         return current
+    if _names_something(current) != _names_something(candidate):
+        return current if _names_something(current) else candidate
     return candidate if len(candidate) > len(current) else current
 
 
@@ -131,6 +156,10 @@ class Node:
     first_seen: str = ""
     last_seen: str = ""
     error: str = ""
+    # Which setups this device belongs to. A shared uplink serves several, so
+    # this is a list: filtering by one setup must not hide the switch that
+    # carries it.
+    setups: List[str] = field(default_factory=list)
     extra: Dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -147,7 +176,7 @@ class Node:
             "chassis_id": self.chassis_id, "chassis_id_raw": self.chassis_id_raw,
             "mgmt_ips": list(self.mgmt_ips), "vendor": self.vendor,
             "state": self.state, "depth": self.depth, "sources": list(self.sources),
-            "serial": self.serial,
+            "serial": self.serial, "setups": list(self.setups),
             "first_seen": self.first_seen, "last_seen": self.last_seen,
             "error": self.error, "extra": dict(self.extra),
         }
@@ -271,6 +300,46 @@ class Topology:
                     return node
         return None
 
+    def _name_wanted(self, name: str) -> str:
+        """A real hostname to match on, or '' when it is not one to trust."""
+        want = (name or "").strip().casefold()
+        if len(want) < 3 or " " in want or _is_mac_like(want):
+            return ""
+        return want
+
+    def _find_by_name(self, name: str) -> Optional[Node]:
+        """Any node already known by this name (its name, or a hostname chassis)."""
+        want = self._name_wanted(name)
+        if not want:
+            return None
+        for node in self.nodes.values():
+            if (node.name or "").strip().casefold() == want:
+                return node
+            chassis = (node.chassis_id or "").strip()
+            if chassis and not _is_mac_like(chassis) and chassis.casefold() == want:
+                return node
+        return None
+
+    def _find_name_only(self, name: str) -> Optional[Node]:
+        """A bare neighbour keyed only by a hostname - no address, no MAC chassis.
+
+        This is the node a switch stands up for a host it names but we have not
+        scanned; it is the one safe to fold into the real host of that name.
+        Two real nodes that merely share a name are never touched.
+        """
+        want = self._name_wanted(name)
+        if not want:
+            return None
+        for node in self.nodes.values():
+            if node.mgmt_ips:
+                continue
+            chassis = (node.chassis_id or "").strip()
+            if _is_mac_like(chassis):
+                continue
+            if chassis.casefold() == want or (node.name or "").strip().casefold() == want:
+                return node
+        return None
+
     def add_node(self, chassis_id: str = "", mgmt_ip: str = "", name: str = "",
                  kind: str = "", vendor: str = "", state: str = STATE_UNSCANNED,
                  source: str = "", depth: Optional[int] = None, error: str = "",
@@ -295,6 +364,20 @@ class Topology:
                 target = self._promote(older, key, chassis, chassis_id)
         if target is None and not chassis:
             target = self._find_by_ip(addresses, "")
+        if target is None:
+            # A host and the same host as a neighbour named it by its hostname
+            # are one device, so a Windows box is not both "10.0.0.5" and
+            # "DESKTOP-..." on the map. Only ever folds a bare hostname-keyed
+            # neighbour (no address, no MAC chassis) onto a real node of that
+            # name - two real nodes that merely share a name stay apart.
+            name_only = (not addresses) and chassis and not _is_mac_like(chassis)
+            if name_only:
+                twin = self._find_by_name(chassis) or self._find_by_name(name)
+            else:
+                twin = self._find_name_only(name)
+            if twin is not None and twin.id != self.resolve(key):
+                self._alias[key] = twin.id
+                target = twin
 
         stamp = now_stamp()
         if target is None:
@@ -393,6 +476,51 @@ class Topology:
         edge.last_seen = _latest(edge.last_seen, stamp)
         return edge
 
+    def fold_known_macs(self) -> int:
+        """A neighbour MAC that a scanned device already owns is that device.
+
+        A switch names the far end by the MAC of the port it sees, and that is
+        not the host's chassis id, so the same server arrived once per cable
+        as a nameless box and its links stayed one-sided. Devices we scanned
+        own a MAC list; anything keyed to one of those MACs folds into them.
+        """
+        owned: Dict[str, Any] = {}
+        for node in self.nodes.values():
+            for where in ("macs", "perm_macs"):
+                for iface, mac in (node.extra.get(where) or {}).items():
+                    said = normalise_chassis_id(mac or "")
+                    if said:
+                        owned.setdefault(said, (node.id, iface))
+        folded = 0
+        for key in list(self.nodes):
+            node = self.nodes.get(key)
+            if node is None or node.extra.get("macs"):
+                continue
+            seat = owned.get(node.chassis_id or "")
+            if not seat or seat[0] == key:
+                continue
+            keep = self.nodes.get(seat[0])
+            if keep is None:
+                continue
+            self._name_the_port(key, node.chassis_id, seat[1])
+            self._merge_node_into_node(keep, node)
+            self.nodes.pop(key, None)
+            self._alias[key] = seat[0]
+            folded += 1
+        if folded:
+            self._repoint_edges()
+        return folded
+
+    def _name_the_port(self, node_id: str, mac: str, iface: str) -> None:
+        """The far end was only ever a MAC; the owner knows what it calls it."""
+        for edge in self.edges.values():
+            for side in ("a", "b"):
+                if getattr(edge, side) != node_id:
+                    continue
+                said = getattr(edge, side + "_iface") or ""
+                if normalise_chassis_id(said) == mac:
+                    setattr(edge, side + "_iface", iface)
+
     def _repoint_edges(self) -> None:
         rebuilt: Dict[str, Edge] = {}
         for edge in self.edges.values():
@@ -441,8 +569,11 @@ class Topology:
         for edge in self.edges.values():
             by_conf[edge.confidence] = by_conf.get(edge.confidence, 0) + 1
         links = ", ".join("%d %s" % (count, conf) for conf, count in sorted(by_conf.items()))
-        return "%d device(s) [%s], %d link(s) [%s]" % (
+        said = "%d device(s) [%s], %d link(s) [%s]" % (
             len(self.nodes), states or "-", len(self.edges), links or "-")
+        # A map that was cut short must never read like a finished one.
+        why = str(getattr(self, "stopped_because", "") or "")
+        return ("%s - INCOMPLETE: %s" % (said, why)) if why else said
 
 
     def merge_from(self, data: Dict[str, Any]) -> int:
@@ -504,7 +635,18 @@ def merge_files(paths: List[str]) -> Topology:
 def load_topology(path: str) -> Dict[str, Any]:
     with open(path, "r", encoding="utf-8") as handle:
         data = json.load(handle)
+    name = os.path.basename(path)
+    # A file that is not a map at all - someone picked ports-heard.json, or a
+    # NetBox export, or anything else - has no schema_version and no nodes.
+    # Say that in a sentence a person can act on, not a version number.
+    if not isinstance(data, dict) or "schema_version" not in data \
+            or "nodes" not in data:
+        raise ValueError(
+            "%s is not a LinkFinder map - it has no map in it. Pick a file the "
+            "tool saved as a map (its name ends .topology.json)." % name)
     if data.get("schema_version") != SCHEMA_VERSION:
-        raise ValueError("unsupported topology schema_version %r (this build reads %d)"
-                         % (data.get("schema_version"), SCHEMA_VERSION))
+        raise ValueError(
+            "%s was saved by a different version of LinkFinder (map format %r, "
+            "this build reads %d). Re-draw it with this build."
+            % (name, data.get("schema_version"), SCHEMA_VERSION))
     return data

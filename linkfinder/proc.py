@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from typing import List, Optional, Tuple
+from typing import Tuple
 
 CREATE_NO_WINDOW = 0x08000000
 

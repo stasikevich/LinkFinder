@@ -1,0 +1,1155 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LinkFinder 1.1.0 - help</title>
+<style>
+/* Type first. A help page is read, not admired: 16px body, 1.7 leading and a
+   measure of about 70 characters, which is where reading speed peaks. */
+:root {
+  --ink:#1b1f24; --dim:#56606d; --faint:#7b8694;
+  --line:#e3e7ec; --soft:#f7f9fb; --raise:#fff;
+  --accent:#0b5cad; --accent-soft:#e8f0fa;
+  --note:#0b5cad; --warn:#9a5b00; --warn-soft:#fff6e8;
+  --mono:ui-monospace,"Cascadia Mono",Consolas,"DejaVu Sans Mono",monospace;
+}
+* { box-sizing:border-box; }
+html { scroll-behavior:smooth; scroll-padding-top:72px; }
+body { margin:0; background:var(--raise); color:var(--ink);
+  font:16px/1.7 -apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  -webkit-font-smoothing:antialiased; }
+
+/* Skip link: the first thing a keyboard reaches should be a way past the nav */
+.skip { position:absolute; left:-9999px; top:0; background:var(--accent);
+  color:#fff; padding:10px 16px; z-index:50; border-radius:0 0 6px 0; }
+.skip:focus { left:0; }
+
+#top { position:sticky; top:0; z-index:30; display:flex; align-items:center;
+  gap:14px; padding:10px 22px; background:rgba(255,255,255,.93);
+  backdrop-filter:blur(6px); border-bottom:1px solid var(--line); }
+#top .name { font-weight:650; letter-spacing:-.01em; }
+#top .ver { color:var(--faint); font-size:13px; }
+#top .spacer { flex:1; }
+#top a.jump { font-size:13px; color:var(--accent); text-decoration:none;
+  border:1px solid var(--line); border-radius:999px; padding:4px 12px; }
+#top a.jump:hover { background:var(--accent-soft); }
+
+#wrap { display:flex; align-items:flex-start; }
+#contents { position:sticky; top:49px; width:298px; min-width:298px;
+  height:calc(100vh - 49px); overflow:auto; padding:18px 14px 60px;
+  border-right:1px solid var(--line); background:var(--soft); }
+#find { width:100%; padding:7px 10px; font:13px inherit; margin-bottom:12px;
+  border:1px solid var(--line); border-radius:6px; background:var(--raise); }
+#find:focus { outline:2px solid var(--accent-soft); border-color:var(--accent); }
+#contents a { display:block; padding:4px 10px; margin:1px 0; font-size:13.5px;
+  color:var(--dim); text-decoration:none; border-radius:5px;
+  border-left:3px solid transparent; }
+#contents a:hover { background:var(--accent-soft); color:var(--accent); }
+#contents a.l3 { padding-left:24px; font-size:13px; color:var(--faint); }
+#contents a.here { background:var(--accent-soft); color:var(--accent);
+  border-left-color:var(--accent); font-weight:600; }
+#contents .none { color:var(--faint); font-size:13px; padding:8px 10px; }
+
+main { flex:1; min-width:0; padding:30px 48px 120px; }
+/* The measure applies to prose, where it decides reading speed. A table or a
+   command line is not prose: capping those to 72 characters wraps columns
+   that were readable and wastes the width beside them. */
+.measure { max-width:1120px; }
+.measure > p, .measure > ul, .measure > ol, .measure > blockquote,
+.measure > h1, .measure > h2, .measure > h3, .measure > h4 { max-width:72ch; }
+.measure > table, .measure > pre { max-width:100%; }
+h1 { font-size:34px; line-height:1.2; margin:6px 0 4px; letter-spacing:-.02em; }
+h2 { font-size:25px; line-height:1.25; margin:52px 0 12px; padding-top:18px;
+  border-top:1px solid var(--line); letter-spacing:-.01em; }
+h3 { font-size:18.5px; margin:32px 0 8px; }
+h4 { font-size:16px; margin:22px 0 6px; color:var(--dim); }
+h2:first-of-type { border-top:0; margin-top:18px; }
+/* An anchor on every heading, shown on hover - the way to link a colleague
+   to one answer rather than to the whole page. */
+.anchor { color:var(--faint); text-decoration:none; margin-left:8px;
+  opacity:0; font-weight:400; font-size:.8em; }
+h2:hover .anchor, h3:hover .anchor, .anchor:focus { opacity:1; }
+p { margin:12px 0; }
+a { color:var(--accent); text-decoration-thickness:1px;
+  text-underline-offset:2px; }
+ul,ol { margin:12px 0; padding-left:26px; }
+li { margin:5px 0; }
+code { font:13.5px/1.5 var(--mono); background:var(--soft);
+  border:1px solid var(--line); border-radius:4px; padding:1px 5px; }
+pre { background:#1b1f24; color:#e6edf3; border-radius:8px; padding:14px 16px;
+  overflow:auto; margin:14px 0; max-width:none; }
+pre code { background:none; border:0; padding:0; color:inherit;
+  font-size:13px; }
+/* Width by content: a two-column table stretched across the page puts
+   a hand's width of nothing between a term and its meaning. */
+table { border-collapse:collapse; width:auto; max-width:100%;
+  min-width:min(100%,560px); margin:16px 0; font-size:14.5px; }
+th,td { border-bottom:1px solid var(--line); padding:9px 12px; text-align:left;
+  vertical-align:top; }
+thead th { background:var(--soft); border-bottom:2px solid var(--line);
+  font-weight:600; white-space:nowrap; }
+tbody tr:hover { background:var(--soft); }
+blockquote { margin:16px 0; padding:12px 16px; background:var(--warn-soft);
+  border-left:4px solid var(--warn); border-radius:0 6px 6px 0; }
+blockquote p:first-child { margin-top:0; }
+blockquote p:last-child { margin-bottom:0; }
+hr { border:0; border-top:1px solid var(--line); margin:30px 0; }
+
+#up { position:fixed; right:26px; bottom:26px; display:none; z-index:40;
+  background:var(--raise); border:1px solid var(--line); border-radius:999px;
+  padding:9px 16px; font:13px inherit; color:var(--accent); cursor:pointer;
+  box-shadow:0 2px 10px rgba(0,0,0,.09); }
+#up:hover { background:var(--accent-soft); }
+#up.on { display:block; }
+.stamp { color:var(--faint); font-size:13px; margin-top:56px;
+  border-top:1px solid var(--line); padding-top:16px; }
+
+@media (max-width:980px) {
+  #contents { display:none; }
+  main { padding:22px 20px 90px; }
+}
+@media print {
+  #contents, #top, #up, .anchor { display:none; }
+  main { padding:0; } .measure { max-width:none; }
+  pre { background:#f4f4f4; color:#000; border:1px solid #ccc; }
+}
+</style></head>
+<body>
+<a class="skip" href="#start">Skip to the guide</a>
+<header id="top">
+  <span class="name">LinkFinder</span>
+  <span class="ver">1.1.0 &middot; help</span>
+  <span class="spacer"></span>
+  <a class="jump" href="#contents">Contents</a>
+  <a class="jump" href="#start">Top</a>
+</header>
+<div id="wrap">
+<nav id="contents" aria-label="Contents">
+  <input id="find" type="search" placeholder="Filter these sections"
+         aria-label="Filter sections">
+<a class="l2" href="#1-what-the-tool-answers">1. What the tool answers</a>
+<a class="l2" href="#2-running-it">2. Running it</a>
+<a class="l3" href="#binaries">Binaries</a>
+<a class="l3" href="#from-source">From source</a>
+<a class="l3" href="#running-it-from-linux">Running it from Linux</a>
+<a class="l2" href="#3-the-window-field-by-field">3. The window, field by field</a>
+<a class="l3" href="#top-bar">Top bar</a>
+<a class="l3" href="#advanced-panel">Advanced panel</a>
+<a class="l3" href="#device">Device</a>
+<a class="l3" href="#the-two-actions">The two actions</a>
+<a class="l3" href="#log">Log</a>
+<a class="l3" href="#status-bar">Status bar</a>
+<a class="l2" href="#4-command-line-reference">4. Command line reference</a>
+<a class="l3" href="#targets-and-hosts-that-need-their-own-login">Targets, and hosts that need their own login</a>
+<a class="l3" href="#hosts-that-need-their-own-login">Hosts that need their own login</a>
+<a class="l3" href="#targets-and-access">Targets and access</a>
+<a class="l3" href="#what-to-probe">What to probe</a>
+<a class="l3" href="#switch-side">Switch side</a>
+<a class="l3" href="#port-status-and-health-opt-in">Port status and health (opt-in)</a>
+<a class="l3" href="#topology">Topology</a>
+<a class="l3" href="#output-and-housekeeping">Output and housekeeping</a>
+<a class="l2" href="#4a-architecture">4a. Architecture</a>
+<a class="l3" href="#the-shape">The shape</a>
+<a class="l3" href="#two-guarantees">Two guarantees</a>
+<a class="l3" href="#stage-1-what-counts-as-a-target">Stage 1 - what counts as a target</a>
+<a class="l3" href="#stage-2-choosing-the-access-path">Stage 2 - choosing the access path</a>
+<a class="l3" href="#stage-3-reading-the-device">Stage 3 - reading the device</a>
+<a class="l3" href="#stage-4-working-out-what-is-cabled-to-what">Stage 4 - working out what is cabled to what</a>
+<a class="l3" href="#stage-5-how-far-to-believe-it">Stage 5 - how far to believe it</a>
+<a class="l3" href="#stage-6-what-is-done-with-the-finished-graph">Stage 6 - what is done with the finished graph</a>
+<a class="l3" href="#how-the-product-itself-is-checked">How the product itself is checked</a>
+<a class="l2" href="#5-how-a-device-is-interrogated">5. How a device is interrogated</a>
+<a class="l3" href="#linux-in-order-stopping-at-the-first-answer">Linux, in order, stopping at the first answer</a>
+<a class="l3" href="#how-long-it-listens-and-why-it-is-not-less">How long it listens, and why it is not less</a>
+<a class="l3" href="#other-targets">Other targets</a>
+<a class="l3" href="#switch-dialects">Switch dialects</a>
+<a class="l2" href="#6-topology-discovery">6. Topology discovery</a>
+<a class="l3" href="#identity">Identity</a>
+<a class="l3" href="#what-is-believed-and-in-what-order">What is believed, and in what order</a>
+<a class="l3" href="#merging-never-destroys">Merging never destroys</a>
+<a class="l3" href="#limits">Limits</a>
+<a class="l3" href="#it-starts-from-the-scan-you-already-did">It starts from the scan you already did</a>
+<a class="l3" href="#confirm-mode">Confirm mode</a>
+<a class="l3" href="#cables-between-two-servers">Cables between two servers</a>
+<a class="l3" href="#nothing-is-a-dead-end">Nothing is a dead end</a>
+<a class="l3" href="#link-confidence">Link confidence</a>
+<a class="l3" href="#resuming-and-merging">Resuming and merging</a>
+<a class="l2" href="#6a-port-status-and-health">6a. Port status and health</a>
+<a class="l2" href="#6a2-comparing-the-two-ends-of-a-link">6a2. Comparing the two ends of a link</a>
+<a class="l3" href="#mtu-the-two-numbers-do-not-mean-the-same-thing">MTU: the two numbers do not mean the same thing</a>
+<a class="l3" href="#vlan">VLAN</a>
+<a class="l3" href="#lacp-and-why-a-bond-is-one-link">LACP, and why a bond is one link</a>
+<a class="l3" href="#optics">Optics</a>
+<a class="l3" href="#spanning-tree">Spanning tree</a>
+<a class="l2" href="#6b-timing-and-the-cable-nothing-announces">6b. Timing, and the cable nothing announces</a>
+<a class="l3" href="#rung-0-what-an-announce-actually-carries">Rung 0: what an Announce actually carries</a>
+<a class="l3" href="#rung-1-asking-the-segment-with-no-credentials">Rung 1: asking the segment, with no credentials</a>
+<a class="l3" href="#rung-2-asking-the-switch-over-snmp">Rung 2: asking the switch over SNMP</a>
+<a class="l3" href="#the-clock-tree">The clock tree</a>
+<a class="l3" href="#where-the-numbers-come-from">Where the numbers come from</a>
+<a class="l3" href="#rung-3-the-switch-cli">Rung 3: the switch CLI</a>
+<a class="l2" href="#6c-comparing-two-scans">6c. Comparing two scans</a>
+<a class="l2" href="#6c2-the-rack-pdu-and-which-socket-feeds-what">6c2. The rack PDU, and which socket feeds what</a>
+<a class="l2" href="#6d-handsets-and-what-else-is-plugged-in">6d. Handsets, and what else is plugged in</a>
+<a class="l3" href="#two-layers-and-why-only-one-of-them-is-opt-in">Two layers, and why only one of them is opt-in</a>
+<a class="l3" href="#what-ends-up-on-the-map">What ends up on the map</a>
+<a class="l3" href="#losing-the-host-is-not-losing-the-phones">Losing the host is not losing the phones</a>
+<a class="l2" href="#6e0-the-management-controller-and-whether-it-answers">6e0. The management controller, and whether it answers</a>
+<a class="l3" href="#who-did-the-asking">Who did the asking</a>
+<a class="l3" href="#against-netbox">Against NetBox</a>
+<a class="l2" href="#6e-the-serial-number-and-which-physical-box-this-is">6e. The serial number, and which physical box this is</a>
+<a class="l3" href="#a-placeholder-is-not-a-serial">A placeholder is not a serial</a>
+<a class="l3" href="#what-it-is-used-for">What it is used for</a>
+<a class="l2" href="#6f-netbox-what-should-be-there-next-to-what-is">6f. NetBox: what should be there, next to what is</a>
+<a class="l3" href="#the-token-which-catches-everyone-once">The token, which catches everyone once</a>
+<a class="l3" href="#what-identifies-a-device">What identifies a device</a>
+<a class="l3" href="#the-five-verdicts">The five verdicts</a>
+<a class="l3" href="#an-address-netbox-never-recorded-is-a-gap-not-a-contradiction">An address NetBox never recorded is a gap, not a contradiction</a>
+<a class="l3" href="#netbox-is-optional">NetBox is optional</a>
+<a class="l3" href="#a-setup-is-a-tag-somebody-named">A Setup is a tag somebody named</a>
+<a class="l3" href="#shared-kit-joins-the-bench-it-serves">Shared kit joins the bench it serves</a>
+<a class="l2" href="#6f0-the-map-in-your-browser">6f0. The map in your browser</a>
+<a class="l3" href="#what-you-are-looking-at">What you are looking at</a>
+<a class="l3" href="#live-or-saved">Live or saved</a>
+<a class="l3" href="#the-answers-are-files-not-a-panel">The answers are files, not a panel</a>
+<a class="l3" href="#finding-things">Finding things</a>
+<a class="l3" href="#marking-a-setup">Marking a setup</a>
+<a class="l3" href="#printing-it">Printing it</a>
+<a class="l2" href="#6g-marking-a-setup-on-the-map">6g. Marking a setup on the map</a>
+<a class="l3" href="#what-the-server-is-and-what-it-is-not">What the server is, and what it is not</a>
+<a class="l3" href="#a-saved-copy-is-a-viewer">A saved copy is a viewer</a>
+<a class="l3" href="#opening-a-shell-from-the-map">Opening a shell from the map</a>
+<a class="l3" href="#what-to-add-in-netbox">What to add in NetBox</a>
+<a class="l2" href="#6j2-one-answer-for-the-team-not-one-per-laptop">6j2. One answer for the team, not one per laptop</a>
+<a class="l3" href="#how-it-avoids-the-usual-trouble">How it avoids the usual trouble</a>
+<a class="l3" href="#say-where-things-are">Say where things are</a>
+<a class="l2" href="#6m-a-range-of-addresses">6m. A range of addresses</a>
+<a class="l2" href="#6n-looking-something-up-in-netbox">6n. Looking something up in NetBox</a>
+<a class="l3" href="#letting-netbox-say-where-to-scan">Letting NetBox say where to scan</a>
+<a class="l2" href="#6o-what-does-not-add-up">6o. What does not add up</a>
+<a class="l2" href="#6k-marking-a-whole-bench-at-once">6k. Marking a whole bench at once</a>
+<a class="l3" href="#or-just-a-list">Or just a list</a>
+<a class="l2" href="#6l-one-bench-both-ways">6l. One bench, both ways</a>
+<a class="l2" href="#6h-which-switch-port-is-which-against-netbox">6h. Which switch port is which, against NetBox</a>
+<a class="l2" href="#6i-what-moved-since-last-time">6i. What moved since last time</a>
+<a class="l2" href="#6j-the-map-as-a-table">6j. The map as a table</a>
+<a class="l2" href="#7-file-formats">7. File formats</a>
+<a class="l3" href="#topology-json">Topology JSON</a>
+<a class="l3" href="#topology-html">Topology HTML</a>
+<a class="l3" href="#csv">CSV</a>
+<a class="l2" href="#8-credentials-and-what-touches-the-disk">8. Credentials and what touches the disk</a>
+<a class="l3" href="#a-remembered-password-is-not-kept-in-the-file">A remembered password is not kept in the file</a>
+<a class="l2" href="#9-reading-the-output">9. Reading the output</a>
+<a class="l3" href="#port-lookup">Port lookup</a>
+<a class="l3" href="#topology-x">Topology</a>
+<a class="l2" href="#10-troubleshooting">10. Troubleshooting</a>
+<a class="l2" href="#11-extending-it">11. Extending it</a>
+<a class="l2" href="#12-tests-and-building">12. Tests and building</a>
+<a class="l2" href="#credits">Credits</a>
+<a class="l2" href="#every-option">Every command-line option</a>
+  <div class="none" id="nohit" style="display:none">nothing matches that</div>
+</nav>
+<main id="start"><div class="measure">
+<h1 id="linkfinder-user-guide">LinkFinder - user guide</h1>
+<p><em>Idea, design and architecture by Stas Mitin. MIT licensed.</em></p>
+<p>Complete reference for the tool. The <a href="README.md">README</a> is the short version; this document covers every field, every flag, the file formats and what to do when an answer does not come back.</p>
+<ul><li><a href="#1-what-the-tool-answers">1. What the tool answers</a></li><li><a href="#2-running-it">2. Running it</a></li><li><a href="#3-the-window-field-by-field">3. The window, field by field</a></li><li><a href="#4-command-line-reference">4. Command line reference</a></li><li><a href="#4a-architecture">4a. Architecture</a></li><li><a href="#5-how-a-device-is-interrogated">5. How a device is interrogated</a></li><li><a href="#6-topology-discovery">6. Topology discovery</a></li><li><a href="#7-file-formats">7. File formats</a></li><li><a href="#8-credentials-and-what-touches-the-disk">8. Credentials and what touches the disk</a></li><li><a href="#9-reading-the-output">9. Reading the output</a></li><li><a href="#10-troubleshooting">10. Troubleshooting</a></li><li><a href="#11-extending-it">11. Extending it</a></li><li><a href="#12-tests-and-building">12. Tests and building</a></li></ul>
+<hr>
+<h2 id="1-what-the-tool-answers">1. What the tool answers<a class="anchor" href="#1-what-the-tool-answers" aria-label="link to this section">#</a></h2>
+<p>Two questions:</p>
+<ol><li><strong>"Which switch and which switch port is this cable in?"</strong> - point it at a host, a BMC or a switch and it reports the far end of every link.</li><li><strong>"What does the site look like?"</strong> - give it one seed device and it walks outwards along LLDP/CDP, builds a graph and draws it.</li></ol>
+<p>It gets the answer from whatever the target can actually offer: an LLDP daemon, a packet capture, a BMC over Redfish, a switch over SNMP or its own CLI. Nothing is installed on the target.</p>
+<hr>
+<h2 id="2-running-it">2. Running it<a class="anchor" href="#2-running-it" aria-label="link to this section">#</a></h2>
+<h3 id="binaries">Binaries<a class="anchor" href="#binaries" aria-label="link to this section">#</a></h3>
+<table><thead><tr><th>File</th><th>Use</th></tr></thead><tbody><tr><td><code>dist\linkfinder.exe</code></td><td>command line, batch, scripting</td></tr><tr><td><code>dist\LinkFinder-GUI.exe</code></td><td>the window</td></tr></tbody></table>
+<p>Both are self-contained; no Python needed on the machine that runs them.</p>
+<h3 id="from-source">From source<a class="anchor" href="#from-source" aria-label="link to this section">#</a></h3>
+<pre><code>pip install -r requirements.txt    # paramiko, requests, urllib3
+python -m linkfinder --help
+python -m linkfinder --gui</code></pre>
+<p>SNMP needs no package - the SNMPv2c client is written against the standard library.</p>
+<h3 id="running-it-from-linux">Running it from Linux<a class="anchor" href="#running-it-from-linux" aria-label="link to this section">#</a></h3>
+<p>It runs from Linux as well as from Windows; Windows is simply the side that gets used daily here.</p>
+<p>Proven on Ubuntu 22.04 with the distribution Python 3.10 and nothing installed: every test suite, the command line, an SNMP scan against a live switch, and port health. That is the whole SNMP half of the tool, and it needs no package at all.</p>
+<p>Two things do want one:</p>
+<table><thead><tr><th>You want</th><th>Install</th></tr></thead><tbody><tr><td>the SSH and BMC paths</td><td><code>pip install paramiko requests</code></td></tr><tr><td>the window</td><td><code>apt install python3-tk</code> - tkinter is not a pip package</td></tr></tbody></table>
+<p>Without paramiko the SSH path does not crash: it reports <code>paramiko is not installed (pip install paramiko)</code> and the SNMP paths carry on.</p>
+<p>The host's own neighbour cache is read with <code>ip</code> rather than <code>arp</code>, because net-tools is absent from plenty of minimal installs and containers while <code>ip</code> is always there. <code>arp</code> stays as the fallback for older boxes, and Windows keeps using it outright.</p>
+<hr>
+<h2 id="3-the-window-field-by-field">3. The window, field by field<a class="anchor" href="#3-the-window-field-by-field" aria-label="link to this section">#</a></h2>
+<p>One place to work and one log, over a top bar and a status bar. Everything site-specific is typed in; the window never stores anything by itself.</p>
+<pre><code> Target [10.0.0.5, 10.0.0.6  or  server1]  Login [root]  Password [****]  [ Advanced ]
+ ------------------------------------------------------------------------------------------
+  [Devices]  Log
+ ------------------------------------------------------------------------------------------
+  [ Scan ] [ Map Network ] [ Stop ]      NetBox ready  [ SSH ] [ Save... ] [ Open Map ]
+  Scan asks the address(es) in Target and nothing else.  Map Network walks outward
+  from them and draws it - up to 2 hops or 25 devices, changeable under Advanced.
+ ------------------------------------------------------------------------------------------
+  DEPTH  DEVICE   KIND   SETUP   STATE     MANAGEMENT IP     WHY
+  0      node-a   linux  dio     scanned   198.51.100.10     -
+  1      sw-core-1 switch -      scanned   198.51.100.2      -
+  Device [ 198.51.100.10 (node-a) v ]
+  [ ] Also read switch port counters    sample [3] s   expect [    ] Mbps
+ ------------------------------------------------------------------------------------------
+  PORT          STATUS     CONNECTED TO                            ISSUES
+  eno1 [mgmt]   UP  1G     sw-access-1  1/1/13                     -
+  enp23s0f2     UP  10G    sw-core-1  10GigabitEthernet 1/13       -
+  enp23s0f0     UP  10G    node-b enp101s0f3  (direct cable, PTP)  -
+  enp23s0f1     UP  10G    unknown                                 no LLDP
+ ------------------------------------------------------------------------------------------
+  enp23s0f0 on 198.51.100.10   (02:00:00:00:00:08, 10000Mb/s, MTU 9000)
+  Far end: node-b enp101s0f3
+  Evidence: most likely a direct cable - each end hears only the other
+  ...
+ ------------------------------------------------------------------------------------------
+ * Reading SNMP...                                    device 4, queued 9        00:42</code></pre>
+<p>It used to be five tabs, and that was the wrong shape: a single port's neighbour was on one tab, its health on another and its timing on a third, so answering one question meant visiting three places and holding the port name in your head. Then Device and Map were still two pages for one question - same targets, same logins, differing only in how far to walk. They are one page now: the devices found, and under them the ports of whichever is selected.</p>
+<h3 id="top-bar">Top bar<a class="anchor" href="#top-bar" aria-label="link to this section">#</a></h3>
+<table><thead><tr><th>Control</th><th>Meaning</th></tr></thead><tbody><tr><td><strong>Target</strong></td><td>Address to scan, or the seed for a map. Several, comma or space separated. A host needing its own login is written <code>root@10.0.0.5</code> or <code>admin:secret@10.0.0.5</code>. The grey example is a hint, not a value - it is never scanned. Enter runs the scan.</td></tr><tr><td><strong>Login / Password</strong></td><td>SSH credentials, reused for a BMC unless the Advanced panel overrides them; the password is also used for <code>sudo</code>. With a password set, agent keys are not tried - network devices allow very few auth attempts.</td></tr><tr><td><strong>Advanced</strong></td><td>Folds out everything you set once: SSH key, BMC credentials, switches and SNMP community, interface filter, MAC, mode, capture seconds, and the three behaviour ticks.</td></tr><tr><td><strong>Theme</strong></td><td><code>system</code>, <code>light</code> or <code>dark</code>. <code>system</code> follows the Windows setting.</td></tr></tbody></table>
+<h3 id="advanced-panel">Advanced panel<a class="anchor" href="#advanced-panel" aria-label="link to this section">#</a></h3>
+<table><thead><tr><th>Control</th><th>Meaning</th></tr></thead><tbody><tr><td><strong>SSH key file</strong></td><td>Private key instead of a password.</td></tr><tr><td><strong>BMC user / password</strong></td><td>Redfish only. Empty means reuse the SSH credentials.</td></tr><tr><td><strong>Switches (SNMP)</strong></td><td>Switches that may be asked. <code>address</code> or <code>address@community</code>.</td></tr><tr><td><strong>SNMP community</strong></td><td>Default community.</td></tr><tr><td><strong>Interfaces</strong></td><td>Restrict the probe. A bond expands to its physical legs.</td></tr><tr><td><strong>MAC (switch-side)</strong></td><td>Look this MAC up instead of working one out.</td></tr><tr><td><strong>Mode</strong></td><td><code>auto</code> decides for itself; the rest force a path.</td></tr><tr><td><strong>Capture seconds</strong></td><td>The longest it will listen when a capture is unavoidable. LLDP ticks every 30 seconds, CDP every 60. A host seen before is listened to for less - see below.</td></tr><tr><td><strong>management interface only</strong></td><td>Probe only the interface carrying the address typed.</td></tr><tr><td><strong>enable LLDP on a BMC if it is off</strong></td><td>Allows one write to the BMC. Untick to leave it untouched.</td></tr><tr><td><strong>remember switches it finds</strong></td><td>Writes to <code>~/.linkfinder-switches.json</code>. Off by default.</td></tr><tr><td><strong>Known switches / Forget</strong></td><td>Show or wipe that list.</td></tr><tr><td><strong>Per-host logins</strong></td><td>One row per host that does not share the login in the top bar. Password masked. A host listed here is asked as well - it does not have to be in Target too.</td></tr><tr><td><strong>Load list...</strong></td><td>Read a host list file, the format <code>--targets-file</code> takes; fills the table and Target. <code>File</code> -&gt; <code>Save an example host list...</code> writes one with the format in its own comments.</td></tr><tr><td><strong>remember these logins</strong></td><td>Writes the table, passwords included, into the defaults file. Off by default.</td></tr><tr><td><strong>Forget saved / Clear</strong></td><td>Remove them from the file, or empty the table on screen.</td></tr><tr><td><strong>Extra logins to try</strong></td><td>Not tied to a host. Tried in order, and only after a device actually rejected the login before them.</td></tr></tbody></table>
+<h3 id="device">Device<a class="anchor" href="#device" aria-label="link to this section">#</a></h3>
+<p>One table, one row per cable, four columns and no more. <strong>Port</strong>, <strong>Status</strong>, <strong>Connected to</strong>, <strong>Issues</strong>.</p>
+<p><strong>Connected to</strong> answers the question the tool exists for, whatever the route: a switch and its port when LLDP or the forwarding table resolved it, the far machine and how sure we are when only PTP could name it, or <code>unknown</code> when nothing could. A port with no answer still gets a row - leaving it out would be the one thing worse than saying nothing.</p>
+<p><strong>Issues</strong> carries only what is not right: a failed comparison, a degraded switch port, a live port with no LLDP. Everything that is fine shows <code>-</code>. This is deliberate and it is what keeps the table at four columns instead of fifteen as checks are added - MTU, VLAN, speed, LACP and the rest are not columns, they are reasons for a row to appear in Issues.</p>
+<p>Colour carries the same meaning everywhere in the window: green resolved and clean, amber resolved with something to look at, red a fault, grey nothing found.</p>
+<p>Select a row and the panel underneath explains that one cable - the local MAC, speed and MTU; the switch and port with how it was learned; the far end with the evidence behind it in words; the grandmaster and timing state; every comparison with both sides' values; and, when port counters were read, the counters themselves with how much each moved during the sample.</p>
+<p><strong>Also read switch port counters</strong> is the opt-in. Until it is ticked the interval and expected-speed boxes are dead and not one extra SNMP request is made. Ticked, the switch port behind each row is read as well, and what it says folds into the same table rather than opening a page of its own.</p>
+<p>With more than one target a <strong>Device</strong> picker appears; with one it stays hidden. The line above it says how many devices were scanned and when, so a page left over from an earlier run cannot be mistaken for the current one.</p>
+<h3 id="the-two-actions">The two actions<a class="anchor" href="#the-two-actions" aria-label="link to this section">#</a></h3>
+<p><strong>Scan</strong> asks the address(es) in Target and nothing else. <strong>Map Network</strong> walks outward from them, draws the map, writes the table, the data and the page side by side, and offers to open it. <strong>Open Map</strong> opens the one already drawn without walking anything again, and <strong>Stop</strong> finishes the devices already being asked and then stops.</p>
+<p>They were briefly one button with a <em>how far</em> choice beside it - These / + Connected / Whole site. It read as though the map were a setting on a scan, when the map is the thing people come here to make, so they are two buttons again. How far to walk lives under <strong>Advanced</strong>, with <strong>Map Network stops after</strong> N hops or N devices, <strong>stay inside (CIDR)</strong> and a <strong>keep going without asking</strong> tick. The line under the buttons names the limits in force, so nobody has to press Map Network to find out how far it goes.</p>
+<p>The table lists every device found with its depth, state, management address and - when it was not scanned - why.</p>
+<p><strong>Compare...</strong> in the top right takes two saved topology files and reports what moved between them, into the Log.</p>
+<h3 id="log">Log<a class="anchor" href="#log" aria-label="link to this section">#</a></h3>
+<p>The full transcript, plus <strong>Save CSV</strong>, <strong>Save JSON</strong>, <strong>Error details</strong> and the remembered-switch list. The main window never shows a traceback: the short reason goes in the status bar and the technical text waits behind that button.</p>
+<h3 id="status-bar">Status bar<a class="anchor" href="#status-bar" aria-label="link to this section">#</a></h3>
+<p>The dot and the phrase say what is happening right now - <code>Reading LLDP...</code>, <code>Capturing LLDP/CDP...</code>, <code>Reading SNMP...</code>, <code>Sampling port counters...</code>, <code>Scanning 198.51.100.4...</code>. During a topology walk the counter shows how many devices have been done and how many are queued, and the clock on the right shows elapsed time. The window stays responsive throughout: all network work happens on worker threads.</p>
+<h2 id="4-command-line-reference">4. Command line reference<a class="anchor" href="#4-command-line-reference" aria-label="link to this section">#</a></h2>
+<h3 id="targets-and-hosts-that-need-their-own-login">Targets, and hosts that need their own login<a class="anchor" href="#targets-and-hosts-that-need-their-own-login" aria-label="link to this section">#</a></h3>
+<p>Targets are given on the command line or in <code>--targets-file</code>, comma or space separated, and a host that does not share the common password carries its own:</p>
+<pre><code>10.0.0.5                     uses -u / -p
+root@10.0.0.6                its own user, the shared password
+admin:secret@10.0.0.7        entirely its own</code></pre>
+<p>The split is from the right, so a password may contain an <code>@</code>; a hostname may not. Nothing typed here is written anywhere - it lives for the one run.</p>
+<p>Order matters when a host has its own login. Network gear drops the session after two or three failed attempts, so the set most likely to work is tried first: the host's own, then the shared pair, then anything from <code>--cred</code>. A user-only override borrows the shared password rather than going without one.</p>
+<p><code>--cred USER:PASSWORD</code> is still there for the other shape of the problem - several possible passwords and no knowledge of which host takes which. Those are tried in turn, and only when the previous one was actively <strong>rejected</strong>; a device that simply is not answering does not get attempts spent on it.</p>
+<p><strong>A target that cannot be an address is dropped before anything is tried</strong>, with the reason. <code>198.51.100.1801</code> is four dotted numbers with one out of range - nobody meant to type that, and reporting it as "no SSH, no HTTPS" would send a person to check a firewall over an extra digit. Anything containing a letter is treated as a hostname and left alone.</p>
+<h3 id="hosts-that-need-their-own-login">Hosts that need their own login<a class="anchor" href="#hosts-that-need-their-own-login" aria-label="link to this section">#</a></h3>
+<p>Not every box shares one password. Three ways to say so, and they combine:</p>
+<ol><li><strong>In the Target field</strong> - <code>root@10.0.0.5</code>, or <code>admin:secret@10.0.0.6</code>. The split is from the right, so a password may itself contain an <code>@</code>.</li><li><strong>The Per-host logins table</strong> under Advanced - one row per host, password masked. <code>Load list...</code> reads a host list file, the same format <code>--targets-file</code> takes, and fills both the table and Target from it. A host in this table is <strong>asked as well</strong>, whether or not it is in Target: typing a host, a user and a password in is asking for that host. It used to decide only which password to use if a walk happened to arrive there, so four hosts entered by hand were never visited and the map came back without them, saying nothing.</li><li><strong>The shared Login / Password</strong> in the top bar, used by every host not named above.</li><li><strong>Extra logins to try</strong>, under the table - pairs with no host against them, used as a fallback when you do not know which box wants which. Each one costs a failed attempt on a device that refuses it, and network gear drops the session after two or three, so they are tried only after a real rejection and the list is meant to stay short.</li></ol>
+<p>Order of preference, highest first:</p>
+<table><thead><tr><th>Where the login came from</th><th>Beats</th></tr></thead><tbody><tr><td>typed into Target as <code>user:pass@host</code></td><td>everything</td></tr><tr><td>the Per-host logins table</td><td>the shared login</td></tr><tr><td>the shared Login / Password</td><td>-</td></tr><tr><td>the Extra logins list, or <code>--cred</code></td><td>tried only after an actual rejection</td></tr></tbody></table>
+<p>A user given without a password borrows the shared password, so a host that only needs a different username costs one field.</p>
+<p><strong>Remembering them.</strong> The tick <code>remember these logins (writes passwords to disk)</code> is off by default. With it on, the table is written into the defaults file as</p>
+<pre><code>{
+  "per_host": {
+    "10.0.0.5": {"user": "root", "password": "secret"}
+  }
+}</code></pre>
+<p>in the clear, in your home directory, alongside a <code>creds</code> list holding the extra logins. <code>Forget saved</code> removes both keys again. The command line reads the same two, so a login saved once works in both front ends.</p>
+<h3 id="targets-and-access">Targets and access<a class="anchor" href="#targets-and-access" aria-label="link to this section">#</a></h3>
+<table><thead><tr><th>Flag</th><th>Meaning</th></tr></thead><tbody><tr><td><code>targets</code></td><td>Positional. Addresses, comma or space separated.</td></tr><tr><td><code>--targets-file FILE</code></td><td>One target per line; <code>#</code> comments allowed. A line may be a host, <code>root:secret@host</code>, or a whole network. A <code>[name]</code> line puts everything under it into that setup. <code>File</code> -&gt; <code>Save an example host list...</code> writes one to start from.</td></tr><tr><td><code>-m, --mode</code></td><td><code>auto</code>, <code>ssh</code>, <code>linux</code>, <code>esxi</code>, <code>windows</code>, <code>windows-local</code>, <code>bmc</code>, <code>switch</code>, <code>switch-cli</code>, <code>pdu</code>.</td></tr><tr><td><code>-u, --user</code>, <code>-p, --password</code></td><td>SSH credentials. The password is also used for <code>sudo</code>.</td></tr><tr><td><code>--sudo-password</code></td><td>When sudo differs from the login password.</td></tr><tr><td><code>-i, --key FILE</code></td><td>SSH private key.</td></tr><tr><td><code>--ssh-port N</code></td><td>Default 22.</td></tr><tr><td><code>--cred USER:PASSWORD</code></td><td>An extra credential set, repeatable. Only tried when the previous one was actively <strong>rejected</strong>, so attempts are not wasted on a device that is simply not answering.</td></tr><tr><td><code>--bmc-user</code>, <code>--bmc-password</code>, <code>--bmc-port</code></td><td>Redfish. User and password default to the SSH ones.</td></tr><tr><td><code>--no-enable-lldp</code></td><td>Never PATCH a BMC to switch its LLDP receiver on.</td></tr></tbody></table>
+<h3 id="what-to-probe">What to probe<a class="anchor" href="#what-to-probe" aria-label="link to this section">#</a></h3>
+<table><thead><tr><th>Flag</th><th>Meaning</th></tr></thead><tbody><tr><td><code>--iface NAME</code></td><td>Repeatable. Bonds expand to their physical legs.</td></tr><tr><td><code>--mgmt-only</code></td><td>Only the interface carrying the target address.</td></tr><tr><td><code>-t, --seconds N</code></td><td>Capture window, default 65.</td></tr><tr><td><code>--no-ptp</code></td><td>Skip the timing read. On by default; see section 6b.</td></tr></tbody></table>
+<h3 id="switch-side">Switch side<a class="anchor" href="#switch-side" aria-label="link to this section">#</a></h3>
+<table><thead><tr><th>Flag</th><th>Meaning</th></tr></thead><tbody><tr><td><code>--switch IP</code> or <code>--switch IP@community</code></td><td>Repeatable. Switches that may be asked.</td></tr><tr><td><code>--community NAME</code></td><td>Default SNMP v2c community.</td></tr><tr><td><code>--switch-user</code>, <code>--switch-password</code></td><td>Login for the switch CLI fallback.</td></tr><tr><td><code>--mac MAC</code></td><td>Look this MAC up instead of resolving one.</td></tr></tbody></table>
+<h3 id="port-status-and-health-opt-in">Port status and health (opt-in)<a class="anchor" href="#port-status-and-health-opt-in" aria-label="link to this section">#</a></h3>
+<table><thead><tr><th>Flag</th><th>Meaning</th></tr></thead><tbody><tr><td><code>--port-health</code></td><td>Also read the switch port table over SNMP and judge each port. <strong>Off by default; without it not one extra SNMP read happens.</strong></td></tr><tr><td><code>--port-health-interval SECONDS</code></td><td>Gap between the two counter reads, default 3.</td></tr><tr><td><code>--expect-speed MBPS</code></td><td>Call a port degraded when it negotiates below this. Without an expectation, speed is never judged.</td></tr><tr><td><code>--all-interfaces</code></td><td>Include logical interfaces, not only physical ports.</td></tr></tbody></table>
+<h3 id="topology">Topology<a class="anchor" href="#topology" aria-label="link to this section">#</a></h3>
+<table><thead><tr><th>Flag</th><th>Meaning</th></tr></thead><tbody><tr><td><code>--topology SEED</code></td><td>Start a recursive discovery from this device.</td></tr><tr><td><code>--max-depth N</code></td><td>Default 2. Seed is depth 0.</td></tr><tr><td><code>--max-devices N</code></td><td>Default 25.</td></tr><tr><td><code>--scope CIDR</code></td><td>Repeatable. Limits who we connect to, not who we draw.</td></tr><tr><td><code>--auto-discover</code></td><td>Do not ask between levels. Confirm mode is the default.</td></tr><tr><td><code>--topology-workers N</code></td><td>Devices interrogated in parallel per level, default 4.</td></tr><tr><td><code>--topology-resume JSON</code></td><td>Carry an earlier scan forward and only fill in the gaps.</td></tr><tr><td><code>--topology-json FILE</code></td><td>Where to write the graph.</td></tr><tr><td><code>--topology-html FILE</code></td><td>Where to write the page.</td></tr><tr><td><code>--merge-topology A.json B.json ...</code></td><td>Combine several scans into one site map.</td></tr><tr><td><code>--render-topology JSON HTML</code></td><td>Render only; touches no device.</td></tr></tbody></table>
+<p>If neither <code>--topology-json</code> nor <code>--topology-html</code> is given, the result is saved to the temp directory rather than lost.</p>
+<h3 id="output-and-housekeeping">Output and housekeeping<a class="anchor" href="#output-and-housekeeping" aria-label="link to this section">#</a></h3>
+<table><thead><tr><th>Flag</th><th>Meaning</th></tr></thead><tbody><tr><td><code>--json</code>, <code>--csv FILE</code></td><td>Machine-readable results (<code>-</code> for stdout).</td></tr><tr><td><code>-w, --wide</code></td><td>Every column, including the note.</td></tr><tr><td><code>-q, --quiet</code></td><td>Results only, no progress log.</td></tr><tr><td><code>-j, --workers N</code></td><td>Parallel targets for the plain lookup, default 8.</td></tr><tr><td><code>--learn</code></td><td>Remember discovered switches. Off by default.</td></tr><tr><td><code>--remember-credentials</code></td><td>With <code>--learn</code>, also store the SNMP community that worked.</td></tr><tr><td><code>--list-switches</code>, <code>--forget-switches [IP]</code></td><td>Inspect or wipe the remembered list.</td></tr><tr><td><code>--forget-logins</code></td><td>Remove the saved per-host logins and extra credentials from the defaults file. The window's <strong>Forget logins</strong> does the same.</td></tr><tr><td><code>--gui</code></td><td>Open the window.</td></tr></tbody></table>
+<p>Exit code is <code>0</code> when at least one link resolved, <code>1</code> when none did.</p>
+<hr>
+<h2 id="4a-architecture">4a. Architecture<a class="anchor" href="#4a-architecture" aria-label="link to this section">#</a></h2>
+<p>This section is the map of the three that follow it. Sections 5 and 6 describe each stage in detail; this one says what the stages are, why they are in that order, and where each lives in the source.</p>
+<h3 id="the-shape">The shape<a class="anchor" href="#the-shape" aria-label="link to this section">#</a></h3>
+<p>Five stages. Each hands the next <strong>data</strong>, never a call, which is why every one of them can be tested on its own with no network at all.</p>
+<pre><code>targets  -&gt;  access path  -&gt;  device readings  -&gt;  link graph  -&gt;  map + disagreements</code></pre>
+<p>The graph in the middle is the contract. It is written out as JSON, so it can be saved, merged with another scan, compared against yesterday, or re-rendered without touching a single device again.</p>
+<h3 id="two-guarantees">Two guarantees<a class="anchor" href="#two-guarantees" aria-label="link to this section">#</a></h3>
+<p><strong>It only reads.</strong> No command the tool issues changes anything on a target. There is no write path to NetBox and none is planned - the disagreement report is the product.</p>
+<p><strong>It never reaches the internet.</strong> Everything it needs is inside the binary: the IEEE vendor register, the icons, the graph library, the help you are reading. A tool that maps a lab must work in a lab with no way out.</p>
+<h3 id="stage-1-what-counts-as-a-target">Stage 1 - what counts as a target<a class="anchor" href="#stage-1-what-counts-as-a-target" aria-label="link to this section">#</a></h3>
+<p><code>linkfinder/targets.py</code> turns what you typed into a list: one address, a subnet such as <code>192.0.2.0/24</code>, a range, or a file. A file may carry a login per line (<code>root@192.0.2.5</code>) and a <code>[setup name]</code> heading.</p>
+<p><strong>This is not a subnet scanner.</strong> Give it one address and it visits that address, then only the addresses devices themselves named. It never invents an address and knocks.</p>
+<p>The walk is breadth-first (<code>linkfinder/crawl.py</code>): the seed is depth 0, its neighbours depth 1, and so on. At <code>max_depth</code> - 2 by default - devices are still interrogated, but their neighbours are no longer expanded.</p>
+<h3 id="stage-2-choosing-the-access-path">Stage 2 - choosing the access path<a class="anchor" href="#stage-2-choosing-the-access-path" aria-label="link to this section">#</a></h3>
+<p>Decided per target, before any login, in <code>linkfinder/engine.py</code>:</p>
+<table><thead><tr><th>What answers</th><th>Conclusion</th></tr></thead><tbody><tr><td>Redfish on 443</td><td>management controller</td></tr><tr><td>port 22, and the SSH banner names a crypto library</td><td>rack PDU - it has no shell at all</td></tr><tr><td>port 22</td><td>ordinary host, over SSH</td></tr><tr><td>no 22, but 443</td><td>management controller</td></tr><tr><td><code>--switch</code> was given</td><td>switch, over SNMP</td></tr></tbody></table>
+<p>The PDU case is worth the paragraph it costs. A rack PDU accepts an SSH login and then refuses to run a command, so the ordinary probe logged in, was handed nothing, and reported a machine that said nothing at all. Its SSH server names the library it was built on, which no general-purpose host does - one connection, no login, and the tool knows to speak to it as a PDU instead.</p>
+<h3 id="stage-3-reading-the-device">Stage 3 - reading the device<a class="anchor" href="#stage-3-reading-the-device" aria-label="link to this section">#</a></h3>
+<table><thead><tr><th>Class</th><th>Access</th><th>What it is read with</th></tr></thead><tbody><tr><td>Linux host</td><td>SSH</td><td><code>ip</code>, <code>bridge fdb</code>, <code>ethtool</code>, <code>lldpctl</code> / <code>lldpcli</code>, <code>networkctl</code>, <code>lldptool</code>, <code>tcpdump</code>, <code>sensors</code>, <code>ipmitool</code>, <code>dmidecode</code></td></tr><tr><td>Switch</td><td>SNMP</td><td>LLDP-REM, CDP, dot1d / dot1q forwarding tables, ARP, ifName, ifAlias, sysDescr</td></tr><tr><td>Switch</td><td>SSH CLI</td><td><code>show lldp neighbors detail</code>, <code>show cdp neighbors detail</code>, <code>show version</code></td></tr><tr><td>Management controller</td><td>Redfish over HTTPS</td><td>inventory and the controller's own interfaces</td></tr><tr><td>Rack PDU</td><td>SSH, interactive session</td><td><code>about</code>, <code>netstat</code>, <code>olStatus all</code></td></tr><tr><td>ESXi</td><td>SSH</td><td><code>pktcap-uw</code> in place of <code>tcpdump</code></td></tr><tr><td>Windows</td><td>locally</td><td>the PnP registry, <code>pktmon</code></td></tr><tr><td>Handset</td><td>USB / ADB</td><td><code>/sys/bus/usb/devices/*</code>, <code>adb devices</code></td></tr></tbody></table>
+<p>Nothing is installed on a target, and nothing is left behind.</p>
+<h4 id="neighbours-cheapest-source-first">Neighbours, cheapest source first</h4>
+<p>On a Linux host the sources are tried cheapest first, and <strong>each one runs only for the ports the previous one did not settle</strong> - so the 125-second listen is reached only for a port nothing faster could explain:</p>
+<ol><li><code>lldpctl</code> - a daemon has already been listening, so the answer is immediate</li><li><code>networkctl lldp</code> - the same, from systemd</li><li><code>lldptool</code> - one port at a time</li><li><strong>the switch's MAC table</strong>, where a switch is known and answers SNMP: it already holds which port each of the host's addresses is on, in under a tenth of a second. Those ports are then never listened to. See "Asking the switch first" below.</li><li><strong>the host's own neighbour cache</strong>, read with no pinging and no waiting: a port with a reachable link-local peer is a direct cable the capture would only sit silent on, because LLDP was already tried above and found none. Reading the cache costs one command; those ports drop out of the listen too.</li><li><code>tcpdump</code> - listen for the frames ourselves, for the ports still unexplained</li><li><code>tshark</code> - where there is no <code>tcpdump</code></li><li>a raw-socket sniffer in Python - where there is neither</li></ol>
+<p>On a host running an LLDP daemon there is nothing to listen for. Where a switch answers or a neighbour is already cached, those ports are resolved in seconds. Only a port that is genuinely silent - nothing has ever spoken over it - is listened to for the full window, because confirming silence is the one thing that cannot be hurried.</p>
+<h4 id="asking-the-switch-first">Asking the switch first</h4>
+<p>The slow part of a scan is listening for LLDP on a host that runs no LLDP daemon. The switch it plugs into already knows, in its MAC table, which port each of the host's addresses is on, and answers over SNMP in a fraction of a second - <strong>read-only, no login, just the switch address and SNMP enabled</strong> (the tool also learns the switch address from the host's own LLDP, so often it is given for free). Where a switch is known, its table is read before any listening and those ports are skipped. The MAC table carries the port's VLAN too, so a VLAN mismatch surfaces at the same time. Ports the switch cannot explain - a dark cable, a direct server-to-server link - still fall through to the capture, so nothing is lost where no switch can help.</p>
+<h4 id="why-the-listen-is-as-long-as-it-is">Why the listen is as long as it is</h4>
+<p>LLDP sends every 30 seconds and CDP every 60 (IEEE 802.1AB; CDP by convention), so the capture window is <strong>125 seconds</strong>, with <strong>34 seconds</strong> of grace after the last frame. The grace used to be 8 seconds - shorter than one LLDP interval - and a cable with two talkers on it reliably lost one of them. The window is only ever reached for a port the switch and the neighbour cache could not already settle.</p>
+<h4 id="what-else-comes-off-a-host">What else comes off a host</h4>
+<p>Every port with an address, a speed, an MTU and a carrier; the burned-in hardware addresses, not the ones a bond substitutes; the bridge forwarding table; the optics, with wavelength, reach and the rate the link settled at; card temperatures; DHCP leases; the BMC address read from inside the machine; attached USB devices; serials.</p>
+<p>It also lists the <strong>serial ports</strong> and marks the one a radio is most likely on. A radio's console is usually reached through a USB-to-serial cable, and nobody remembers which <code>/dev/ttyUSB*</code> or <code>COMx</code> it became. The host already knows: the kernel names the adapter, its bridge chip (FTDI, CP210x, CH340, Prolific, …) and the cable's own serial number. LinkFinder reads that out - over the same SSH session on Linux, or from the local PnP table when the Windows binary is run on the machine itself - and flags the USB-serial adapters apart from the motherboard's own UARTs and any Bluetooth COM port, where a radio never is. Nothing is opened or written: reading a byte off the line would interrupt whatever is already talking to the radio, so the identity alone names the port. It shows up under <strong>Serial ports</strong> on the device panel, radio cable first. (<code>linkfinder/serialports.py</code>.)</p>
+<p>A fronthaul radio reached inside a pod's network namespace is found by probing - it answers SSH and NETCONF on its link-local address - which says a radio is there, not which one. When the radio's management plane is up, the tool reads the radio's <strong>own serial and model</strong> the standard way: a NETCONF <code>&lt;get&gt;</code> of the <code>ietf-hardware</code> model on port 830, run from inside the namespace through the host's own ssh client, nothing installed. It is a read, never an edit, and the serial lands on the radio's node like any other device's. The logins it tries, and - as a fallback, for a radio whose management plane is down - where a host records a radio's serial in its own files, are site-specific and so are carried only by the internal build, never the open one or the repository, exactly like the host logins. (<code>linkfinder/netconf.py</code>, <code>linkfinder/radiolog.py</code>.)</p>
+<h3 id="stage-4-working-out-what-is-cabled-to-what">Stage 4 - working out what is cabled to what<a class="anchor" href="#stage-4-working-out-what-is-cabled-to-what" aria-label="link to this section">#</a></h3>
+<p>LLDP and CDP are handled during the probe: a device announced its neighbour, and that is the strongest evidence there is. Everything else runs <strong>after</strong> the probes, over the finished graph, in one declared order - <code>linkfinder/ladder.py</code>:</p>
+<table><thead><tr><th>#</th><th>Rung</th><th>What it does</th></tr></thead><tbody><tr><td>1</td><td>virtual machine to hypervisor</td><td>the guest's address is in the host's bridge table, or its hardware address follows a hypervisor's convention - not evidence about a cable, the cable itself</td></tr><tr><td>2</td><td>PTP links</td><td>a clock hierarchy names its own parent, deliberately</td></tr><tr><td>3</td><td>PTP clock roots</td><td>the grandmaster each clock is following, placed on the map</td></tr><tr><td>4</td><td>IPv6 neighbours</td><td>a link-local address belongs to one cable, not to a subnet</td></tr><tr><td>5</td><td>IPv4 neighbour cache</td><td>the last rung that adds a link, and only for ports nothing above settled</td></tr><tr><td>6</td><td>LACP partner</td><td>not a cable but a switch, named by its own aggregator</td></tr><tr><td>7</td><td>controller cross-check</td><td>a management controller already on the map, matched to its host</td></tr><tr><td>8</td><td>consistency check</td><td>flags the cables whose two ends tell different stories</td></tr><tr><td>9</td><td>LAG folding</td><td>collapses the members of a bond into the one link they really are</td></tr></tbody></table>
+<p>The last four read the finished map rather than any probe output, which is why they come after everything that can still add to it.</p>
+<p><strong>The order is the rule: a port settled by stronger evidence is never revisited by anything weaker.</strong> That order used to live nowhere. Each caller imported the builders it remembered and ran them as they happened to be written, so a crawl and a plain host list drew <em>different maps from identical facts</em>.</p>
+<p>No rung is fatal. One that cannot run says so and the rest carry on: a map missing one kind of link is worth far more than no map.</p>
+<h3 id="stage-5-how-far-to-believe-it">Stage 5 - how far to believe it<a class="anchor" href="#stage-5-how-far-to-believe-it" aria-label="link to this section">#</a></h3>
+<p>The three words on a link count <strong>independent witnesses</strong>, not probability. They are decided in one place, <code>linkfinder/topology.py</code>:</p>
+<table><thead><tr><th>Word</th><th>What happened</th></tr></thead><tbody><tr><td><code>confirmed</code></td><td>both ends named each other, independently</td></tr><tr><td><code>reported</code></td><td>one end announced it; the other was never asked, or stayed silent</td></tr><tr><td><code>inferred</code></td><td>neither end said anything - it was worked out from other evidence</td></tr></tbody></table>
+<p>An <code>inferred</code> link names the evidence it came from, in words, on its own panel. See <a href="#link-confidence">Link confidence</a> for the long version.</p>
+<h3 id="stage-6-what-is-done-with-the-finished-graph">Stage 6 - what is done with the finished graph<a class="anchor" href="#stage-6-what-is-done-with-the-finished-graph" aria-label="link to this section">#</a></h3>
+<p><code>linkfinder/topology.py</code> is pure data: nothing in it talks to a device. From there:</p>
+<table><thead><tr><th>Output</th><th>Module</th><th>What it is</th></tr></thead><tbody><tr><td>the map</td><td><code>linkfinder/render_topology.py</code></td><td>a page served on <code>127.0.0.1</code>, graph library bundled</td></tr><tr><td>NetBox comparison</td><td><code>linkfinder/netbox.py</code></td><td>a record of intent beside a record of fact; read-only</td></tr><tr><td>three CSV reports</td><td><code>linkfinder/findings.py</code></td><td>what NetBox disagrees with, what moved, what does not add up</td></tr><tr><td>rings</td><td><code>linkfinder/loops.py</code></td><td>a redundant path is not a fault; a ring with a leg blocked by spanning tree is a correct network</td></tr><tr><td>end-to-end checks</td><td><code>linkfinder/linkcheck.py</code></td><td>speed, MTU and VLAN - reported only when both ends spoke</td></tr></tbody></table>
+<h3 id="how-the-product-itself-is-checked">How the product itself is checked<a class="anchor" href="#how-the-product-itself-is-checked" aria-label="link to this section">#</a></h3>
+<p>Sixty suites, and six gates. Two read the source: no name is used that nothing defines, and no site name appears anywhere in the prose or the examples. Four read <strong>the built product</strong>: every module is really inside the binary, no settings or site names were bundled with it, both front ends wear the same icon, and the binary starts and does its work.</p>
+<p>That is not caution for its own sake. A dynamically assembled import once dropped three modules from the binary: PyInstaller reads source to find what a program imports and cannot see a name built at run time. Maps came out missing every ARP and every PTP link for hours, while every suite stayed green - because from source it all worked.</p>
+<hr>
+<h2 id="5-how-a-device-is-interrogated">5. How a device is interrogated<a class="anchor" href="#5-how-a-device-is-interrogated" aria-label="link to this section">#</a></h2>
+<p><code>auto</code> decides in this order: a Redfish service on 443 means a BMC (checked <strong>before</strong> SSH, because BMCs usually also listen on 22 for their IPMI shell), otherwise SSH, otherwise HTTPS, otherwise the switch side.</p>
+<h3 id="linux-in-order-stopping-at-the-first-answer">Linux, in order, stopping at the first answer<a class="anchor" href="#linux-in-order-stopping-at-the-first-answer" aria-label="link to this section">#</a></h3>
+<ol><li><code>lldpctl</code> - instant when <code>lldpd</code> is running.</li><li><code>networkctl lldp</code> - systemd-networkd.</li><li><code>lldptool</code> - open-lldp.</li><li><code>tcpdump</code> into a pcap, transferred back base64.</li><li><code>tshark</code>, same way.</li><li>A raw-socket sniffer pushed over SSH and run with the target's own <code>python3</code>. This is what makes nodes with no capture tool answerable.</li></ol>
+<p>SUSE nodes that only have <code>tcpdump</code> inside <code>toolbox</code> are handled there.</p>
+<h3 id="how-long-it-listens-and-why-it-is-not-less">How long it listens, and why it is not less<a class="anchor" href="#how-long-it-listens-and-why-it-is-not-less" aria-label="link to this section">#</a></h3>
+<p>Interrogating one host was measured at 145 seconds, 127 of them spent listening for discovery frames. The listening stops as soon as every port being watched has produced one - but a host with four ports two of which have no neighbour never meets that condition, so the window runs out.</p>
+<p>Shortening it was tried and <strong>turned off again</strong>, and the measurement is worth keeping. Remembering which ports had ever spoken, and waiting only for those, took one host from 145 seconds to 60 with every neighbour still found, three runs in a row. Across a site of nineteen it took 661 seconds to 416 - and the map came back with ten fewer links. Two cold passes of the same site differ by one link, so that was not the network being moody.</p>
+<p>Exactly two hosts accounted for all ten, and they are the two whose radio units answer over IPv6 neighbour discovery inside a pod's network namespace. One went from four neighbours to none, the other from six to three; the other seventeen hosts were identical to the entry.</p>
+<p>The reason is the thing being shortened. While a capture runs the interface is listening, the kernel sees the advertisements going past and fills its neighbour cache - which is read afterwards. Listening for less time genuinely hears less. Nothing was dropped by a defect; it was never heard in the first place.</p>
+<p>So the whole window is what runs. <code>linkfinder/quiet.py</code> keeps the machinery and the measurement, switched off, for the day somebody can tell those two hosts from the other seventeen before deciding how long to listen.</p>
+<p><strong>What did change</strong> is the grace period after the last expected port lands. It was eight seconds, which is shorter than the gap between one device's advertisements: a management port facing both a switch and a virtual machine reported the switch and lost the machine. It is now one full LLDP interval. Hearing whoever spoke first is not the same as hearing what is on the wire.</p>
+<p>Bonds and VLANs are resolved through <code>/sys/class/net/*/lower_*</code> down to the physical legs, so each cable gets its own row.</p>
+<h3 id="other-targets">Other targets<a class="anchor" href="#other-targets" aria-label="link to this section">#</a></h3>
+<table><thead><tr><th>Target</th><th>Method</th></tr></thead><tbody><tr><td>ESXi</td><td><code>vim-cmd hostsvc/net/query_networkhint</code> (CDP and LLDP), then <code>pktcap-uw</code></td></tr><tr><td>Windows</td><td><code>pktmon</code> to pcapng, locally or over OpenSSH</td></tr><tr><td>BMC</td><td>Redfish <code>Port.Ethernet.LLDPReceive</code>, then a per-vendor OEM table, then a generic hunt for any chassis-id/port-id object</td></tr><tr><td>Switch</td><td>SNMP LLDP-MIB and CDP-MIB, or the switch CLI</td></tr><tr><td>Anything else</td><td>the switch side: ask the switches for the forwarding table entry</td></tr></tbody></table>
+<h3 id="switch-dialects">Switch dialects<a class="anchor" href="#switch-dialects" aria-label="link to this section">#</a></h3>
+<p>Detected from the version banner, then the matching commands are run.</p>
+<table><thead><tr><th>NOS</th><th>Detected on</th><th>Neighbours</th></tr></thead><tbody><tr><td>Cisco IOS / IOS-XE</td><td><code>cisco</code>, <code>ios</code></td><td><code>show lldp neighbors detail</code>, <code>show cdp neighbors detail</code></td></tr><tr><td>Cisco NX-OS</td><td><code>nx-os</code>, <code>nexus</code></td><td>same</td></tr><tr><td>Arista EOS</td><td><code>arista</code></td><td><code>show lldp neighbors detail</code></td></tr><tr><td>Juniper JunOS</td><td><code>junos</code></td><td><code>show lldp neighbors</code></td></tr><tr><td>MikroTik RouterOS</td><td><code>routeros</code></td><td><code>/ip/neighbor/print detail</code></td></tr><tr><td>Aruba OS-CX</td><td><code>arubaos-cx</code>, <code>aruba</code></td><td><code>show lldp neighbor-info detail</code></td></tr><tr><td>HPE/Aruba ProCurve</td><td><code>procurve</code></td><td><code>show lldp info remote-device detail</code></td></tr><tr><td>Dell OS10</td><td><code>os10</code>, <code>dell</code></td><td><code>show lldp neighbors detail</code></td></tr><tr><td>Extreme EXOS</td><td><code>extremexos</code></td><td><code>show lldp neighbors detail</code></td></tr><tr><td>Huawei VRP / H3C Comware</td><td><code>huawei</code>, <code>vrp</code>, <code>h3c</code></td><td><code>display lldp neighbor brief</code></td></tr></tbody></table>
+<p>An unknown NOS still gets every command tried. Three parsers cover the output shapes: <code>Key: value</code> blocks, whitespace columns under a header, and RouterOS <code>key=value</code>.</p>
+<hr>
+<h2 id="6-topology-discovery">6. Topology discovery<a class="anchor" href="#6-topology-discovery" aria-label="link to this section">#</a></h2>
+<pre><code>seed -&gt; interrogate -&gt; read neighbours -&gt; add nodes and links
+     -&gt; queue the unvisited ones -&gt; repeat -&gt; JSON -&gt; HTML</code></pre>
+<h3 id="identity">Identity<a class="anchor" href="#identity" aria-label="link to this section">#</a></h3>
+<p>A device is identified by its <strong>chassis id</strong> first, its management address second, its name last. This matters: a router-on-a-stick answers on one address per VLAN, and keying on the address alone would draw it as a dozen switches. As soon as a chassis id arrives for a node first seen by address, the node is re-keyed and the addresses collect in <code>mgmt_ips</code>. Two different chassis ids on the same address stay two devices.</p>
+<p>Chassis ids are normalised before comparison: MACs written with colons, dashes, dots or nothing at all, in any case, all fold to one form. A chassis id that is <strong>not</strong> a MAC - a name, a serial - is kept as text.</p>
+<p>Some devices answer with more than one chassis MAC. When they also publish a serial or a software id, that is used as an extra key and the two halves merge.</p>
+<h3 id="what-is-believed-and-in-what-order">What is believed, and in what order<a class="anchor" href="#what-is-believed-and-in-what-order" aria-label="link to this section">#</a></h3>
+<p>Several things can claim that two ports are cabled together, and they are not equally good. The rule is that the stronger evidence goes first, and a port it has already settled is never revisited by anything weaker - so a guess cannot overwrite a fact, and one cable cannot be drawn twice.</p>
+<table><thead><tr><th></th><th>Evidence</th><th>Why it sits there</th></tr></thead><tbody><tr><td>1</td><td>LLDP / CDP</td><td>The device says who it is, on purpose, out of that port.</td></tr><tr><td>2</td><td>PTP</td><td>A clock hierarchy names its own parent.</td></tr><tr><td>3</td><td>SNMP forwarding table</td><td>The switch itself says which port a MAC is behind.</td></tr><tr><td>4</td><td>IPv6 neighbour</td><td>A link-local address belongs to one cable, not a subnet.</td></tr><tr><td>5</td><td>IPv4 ARP</td><td>The last rung, and only for ports nothing above settled.</td></tr><tr><td>6</td><td>LACP partner</td><td>Not a cable but a switch, named by its aggregator.</td></tr></tbody></table>
+<p>That order lives in one list, in <code>linkfinder/ladder.py</code>, and both the crawl and a plain host list walk it. They used to keep a copy each, and the copies had drifted: one knew about PTP and the other did not, so the same facts drew two different maps.</p>
+<h3 id="merging-never-destroys">Merging never destroys<a class="anchor" href="#merging-never-destroys" aria-label="link to this section">#</a></h3>
+<table><thead><tr><th>Field</th><th>Rule</th></tr></thead><tbody><tr><td><code>mgmt_ips</code>, <code>sources</code></td><td>union</td></tr><tr><td><code>first_seen</code></td><td>earliest</td></tr><tr><td><code>last_seen</code></td><td>latest</td></tr><tr><td><code>name</code>, <code>vendor</code></td><td>the more informative non-empty value</td></tr><tr><td><code>state</code></td><td>only ever upgrades; a later failure cannot overwrite an earlier success</td></tr><tr><td><code>error</code></td><td>cleared as soon as the device is successfully scanned</td></tr></tbody></table>
+<h3 id="limits">Limits<a class="anchor" href="#limits" aria-label="link to this section">#</a></h3>
+<p>All three are always in force.</p>
+<ul><li><code>max_depth</code> - seed is 0; at the limit, devices are probed but their neighbours are not queued.</li><li><code>max_devices</code> - a ceiling on interrogations; the device that is refused is recorded as <code>limit-reached</code>.</li><li><code>scope</code> - restricts connecting only. Out-of-scope neighbours are still nodes.</li></ul>
+<h3 id="it-starts-from-the-scan-you-already-did">It starts from the scan you already did<a class="anchor" href="#it-starts-from-the-scan-you-already-did" aria-label="link to this section">#</a></h3>
+<p>Pressing Map Network after a Scan does not interrogate those devices again. What the scan collected is written straight into the map, and the walk begins from their neighbours. The map page says so before you press anything:</p>
+<pre><code>Starting from the scan of 3 device(s) taken just now - only what is new gets asked.</code></pre>
+<p>Two consequences worth knowing:</p>
+<ul><li>Every address in the Target field is a seed, not only the first. Scanning three hosts and then generating gives you all three on the map.</li><li>The map is only as fresh as the scan it reuses. The age is printed; press Scan again to refresh it.</li></ul>
+<p>On the command line the same thing: <code>--topology</code> takes a list.</p>
+<pre><code>python -m linkfinder --topology 10.0.0.1,10.0.0.2,10.0.0.3 --max-depth 2</code></pre>
+<p>A seed may carry its own login, exactly as a scan target may: <code>--topology root@10.0.0.1,admin:secret@10.0.0.2</code>.</p>
+<h3 id="confirm-mode">Confirm mode<a class="anchor" href="#confirm-mode" aria-label="link to this section">#</a></h3>
+<p>The default. Between levels:</p>
+<pre><code>Found 6 new network device(s) at depth 1:
+   10.0.0.2         sw-access-1
+Add and scan discovered neighbours? [y/N]</code></pre>
+<p><code>--auto-discover</code> skips the question. It is never the default. In the window the same question appears as a dialog.</p>
+<h3 id="cables-between-two-servers">Cables between two servers<a class="anchor" href="#cables-between-two-servers" aria-label="link to this section">#</a></h3>
+<p>A direct cable from one host to another has nobody to report it. Neither end is a bridge, so there is no LLDP; no switch sits in the middle, so there is no forwarding table to look it up in. Every other method in this tool is blind to it.</p>
+<p>PTP answers it, because the hosts are already talking. After the walk, the clocks each port heard are matched against the clocks the other devices announce:</p>
+<table><thead><tr><th>What was heard</th><th>Drawn as</th></tr></thead><tbody><tr><td>two ports hear each other and nothing else</td><td><code>direct</code> - most likely a cable</td></tr><tr><td>a clock heard, but by more than one of our ports, or only one way</td><td><code>segment</code> - shared layer-2, not proof of a cable</td></tr><tr><td>nothing nameable</td><td>no edge at all</td></tr></tbody></table>
+<p>The grading is deliberately cautious both ways. One clock audible from two of our ports rules out a cable on at least one of them; one port hearing two clocks rules out a cable on that port, whichever the far ends are - a splitter or a hub looks exactly like that.</p>
+<p>Two limits worth knowing before reading the map:</p>
+<ul><li><strong>A master port transmits; it usually hears nothing.</strong> A link is pairable only when at least one end is listening, so a pair of master ports facing each other stays undrawn.</li><li><strong>Both ends have to be in the same run.</strong> A grandmaster that was not scanned is named in the port's details but has no node to draw an edge to.</li></ul>
+<h3 id="nothing-is-a-dead-end">Nothing is a dead end<a class="anchor" href="#nothing-is-a-dead-end" aria-label="link to this section">#</a></h3>
+<ul><li>A neighbour with no management address is still a node, marked <code>unscanned</code>.</li><li>A device that refuses the login is <code>unreachable</code>, with the reason stored on the node.</li><li>Neither stops the rest of the walk.</li><li>Only management addresses that a discovery protocol actually reported are followed. <strong>This is not a subnet scanner</strong> and will never probe an address nobody mentioned.</li></ul>
+<h3 id="link-confidence">Link confidence<a class="anchor" href="#link-confidence" aria-label="link to this section">#</a></h3>
+<p>The three words count <strong>how many ends said so themselves</strong>. They are not a score of how likely the link is - they say who the witness was.</p>
+<table><thead><tr><th>Value</th><th>What happened</th><th>Drawn as</th></tr></thead><tbody><tr><td><code>confirmed</code></td><td>both ends named each other, independently</td><td>solid</td></tr><tr><td><code>reported</code></td><td>one end announced it; the other was never asked or stayed silent</td><td>dashed</td></tr><tr><td><code>inferred</code></td><td>neither end said anything - it was worked out from other evidence</td><td>dotted</td></tr></tbody></table>
+<p><code>confirmed</code> is the only one with two witnesses. Each end was asked on its own and neither knows the other was asked, so they cannot agree a wrong answer between them. That is what separates a cable from a one-way tap: a passive tap hears both sides and neither side hears it, so it can never be confirmed.</p>
+<p><code>reported</code> means a discovery protocol - LLDP, CDP, MNDP/LLDP - or a USB bus enumeration. The device said it; nobody checked it. Scanning the far end is what turns it into <code>confirmed</code>.</p>
+<p><code>inferred</code> is this tool's own conclusion, drawn from what answered on a port (IPv6 neighbour discovery), a forwarding table, the ARP cache, or timing traffic. The panel names which of those it was, in words, on every such link. A high <code>inferred</code> count is not an error - it means those far ends have not been scanned.</p>
+<p>A cable is one edge no matter which end reported it, and no matter how many times.</p>
+<h3 id="resuming-and-merging">Resuming and merging<a class="anchor" href="#resuming-and-merging" aria-label="link to this section">#</a></h3>
+<pre><code># carry an earlier scan forward, only fill in the gaps
+linkfinder --topology 10.0.0.1 -u admin -p secret --topology-resume site.topology.json
+
+# combine scans taken with different credentials into one site map
+linkfinder --merge-topology core.json edge.json hosts.json \
+           --topology-json site.topology.json --topology-html site.topology.html</code></pre>
+<p>Merging is the normal way to map a site where devices need different logins: one crawl per credential set, then one merge. The merge uses the same identity rules, so a device that was <code>unreachable</code> in one scan and <code>scanned</code> in another ends up scanned, with both addresses and one confirmed link where the two scans met.</p>
+<hr>
+<h2 id="6a-port-status-and-health">6a. Port status and health<a class="anchor" href="#6a-port-status-and-health" aria-label="link to this section">#</a></h2>
+<p>Entirely opt-in. Without <code>--port-health</code> the tool does not issue a single extra SNMP request; with it, the switch port table is read and each port gets a verdict.</p>
+<pre><code>python -m linkfinder 198.51.100.1 --port-health --community &lt;community&gt;</code></pre>
+<p><strong>Which device is asked.</strong> The switch discovered during the scan is tried first, then anything named with <code>--switch</code>, then the targets themselves. This matters: point the tool at a server and the server is not a switch, so asking it was the one thing guaranteed to return nothing.</p>
+<p><strong>Reading the table by index, not by walking it.</strong> <code>ifName</code> is walked once to learn which interfaces exist, and every other column is then fetched for exactly those indexes. A blind walk is wrong on a switch with thousands of VLAN interfaces: the VLANs take the low indexes, the physical ports sit above them, and a walk that stops early hands back a table with every real port missing and no sign anything was cut.</p>
+<p><strong>A missing <code>ifType</code> is not a "no".</strong> Some switches publish <code>ifType</code> for their VLAN interfaces and nothing at all for the physical ports. A port is only rejected when the device positively says it is not a physical one; when the type is absent, appearing in <code>ifName</code> is enough.</p>
+<p><strong>Joining LLDP to a port.</strong> <code>lldpRemLocalPortNum</code> is an LLDP port number, not an <code>ifIndex</code> - gear that numbers its ports 1000001 upwards calls them 1..21 over LLDP. The exact routes are tried first (the interface name, then the local port id, then the port number as an index); only if all fail is the port number matched against the trailing number of an interface name, and only when that identifies exactly one port. A match made that way is labelled as such in the port detail, so an inference never reads as a reading.</p>
+<p><strong>A dead port reports no speed.</strong> <code>ifSpeed</code> still returns a number when the link is down, and it is not a negotiated one.</p>
+<p><strong>What is read</strong>, all standard MIBs, through the SNMP transport discovery already uses: IF-MIB (<code>ifName</code>, <code>ifDescr</code>, <code>ifType</code>, <code>ifAdminStatus</code>, <code>ifOperStatus</code>, <code>ifSpeed</code> / <code>ifHighSpeed</code>, <code>ifLastChange</code>, <code>ifPhysAddress</code>, <code>ifInErrors</code>, <code>ifOutErrors</code>, <code>ifInDiscards</code>, <code>ifOutDiscards</code>, <code>ifHCInOctets</code>, <code>ifHCOutOctets</code>), LLDP-MIB for the neighbour on each port, and BRIDGE / Q-BRIDGE for learned MACs and the port VLAN.</p>
+<p><strong>The rule that matters.</strong> An absolute counter proves nothing - <code>ifInErrors = 5000</code> may have accumulated over years. The counters are therefore read twice, a few seconds apart, and only a counter that actually <strong>moved</strong> counts as evidence. A port with five thousand old errors and no new ones is reported as healthy.</p>
+<p><strong>Status</strong>: <code>UP</code>, <code>DOWN</code>, <code>DISABLED</code>, <code>DEGRADED</code>, <code>UNKNOWN</code>. <strong>Usage</strong>: <code>USED</code>, <code>FREE_CANDIDATE</code>, <code>DISABLED</code>, <code>UNKNOWN</code>.</p>
+<table><thead><tr><th>Observed</th><th>Status</th><th>Usage</th><th>Confidence</th></tr></thead><tbody><tr><td>admin down</td><td>DISABLED</td><td>DISABLED</td><td>high</td></tr><tr><td>admin up, link up, LLDP neighbour</td><td>UP</td><td>USED</td><td>high</td></tr><tr><td>admin up, link up, MACs learned</td><td>UP</td><td>USED</td><td>high (medium for a single MAC)</td></tr><tr><td>admin up, link up, nothing identifies the far end</td><td>UP</td><td>USED</td><td>low</td></tr><tr><td>admin up, link down</td><td>DOWN</td><td>FREE_CANDIDATE</td><td>medium</td></tr><tr><td>admin or link not reported</td><td>UNKNOWN</td><td>UNKNOWN</td><td>low</td></tr></tbody></table>
+<p>A port becomes <strong>DEGRADED</strong> only on real evidence: errors or discards that grew during the sampling window, a link that changed state in the last five minutes, or a speed below one you declared with <code>--expect-speed</code>. Vendor transceiver alarms are an extension point, not a promise - nothing is invented when the MIB is absent.</p>
+<pre><code>Port: Eth1/17
+Admin: UP
+Link: UP
+Speed: 1G
+Usage: USED
+Health: DEGRADED
+Confidence: HIGH
+
+LLDP:
+  Neighbor: server01
+  Remote port: eno1
+
+Counters:
+  rx_errors:   1240 (+37)
+  tx_errors:   0 (+0)
+  rx_discards: 12 (+3)
+
+Reason:
+  rx_errors increased by 37 during sampling</code></pre>
+<p>If the health read fails while ordinary discovery succeeded, the discovery result is still printed and the health section says <code>UNKNOWN</code> with the reason. A health failure never aborts a scan.</p>
+<hr>
+<h2 id="6a2-comparing-the-two-ends-of-a-link">6a2. Comparing the two ends of a link<a class="anchor" href="#6a2-comparing-the-two-ends-of-a-link" aria-label="link to this section">#</a></h2>
+<p><code>linkfinder/linkcheck.py</code>, with <code>optics.py</code>, <code>lag.py</code> and <code>stp.py</code> feeding it. Runs as part of an ordinary scan; reading the far end costs a handful of SNMP GETs for the ports a link actually landed on, not a table walk, so it is not opt-in.</p>
+<p>Each check is a small pure function over facts already gathered, and writes a named layer onto the link rather than a column onto the table:</p>
+<pre><code>edge.note("mtu", a=9000, b=1500, verdict="mismatch", confidence="high",
+          evidence=["local MTU 9000", "remote MTU 1500"])</code></pre>
+<p><strong>A verdict needs both sides.</strong> One side known and the other not is UNKNOWN, never a match and never a fault. Most of what a tool like this costs is paid in false alarms, and a link whose far end could not be reached is the commonest case of all.</p>
+<table><thead><tr><th>Layer</th><th>Compared</th><th>Flagged when</th></tr></thead><tbody><tr><td><code>mtu</code></td><td><code>/sys/class/net/&lt;if&gt;/mtu</code> against <code>ifMtu</code></td><td>see below</td></tr><tr><td><code>vlan</code></td><td>the untagged id each side reports</td><td>they differ</td></tr><tr><td><code>speed</code></td><td>negotiated rate at each end</td><td>they differ</td></tr><tr><td><code>lacp</code></td><td>local bond against the switch aggregator</td><td>one end bundled, the other not</td></tr><tr><td><code>stp</code></td><td><code>dot1dStpPortState</code> for the far port</td><td>the port is not forwarding</td></tr><tr><td><code>optics</code></td><td>the two transceivers</td><td>fibre, speed or wavelength disagree</td></tr></tbody></table>
+<h3 id="mtu-the-two-numbers-do-not-mean-the-same-thing">MTU: the two numbers do not mean the same thing<a class="anchor" href="#mtu-the-two-numbers-do-not-mean-the-same-thing" aria-label="link to this section">#</a></h3>
+<p>A switch port's MTU is a ceiling - the largest frame it will accept. A host's is what it sends. 1500 facing a port set to 10240 is not a fault, it is the normal state of almost every network, and reporting it would put a warning on nearly every link in the result. The fault is the other way round: a host sending frames the switch will not carry.</p>
+<p>Between two endpoints there is no ceiling, both sides send, and any difference counts. The check takes which case it is in.</p>
+<p>This was got wrong first time round, flagged both fronthaul links on the bench, and the numbers were right while the verdict was wrong. The test that pins it says so in its own name.</p>
+<h3 id="vlan">VLAN<a class="anchor" href="#vlan" aria-label="link to this section">#</a></h3>
+<p>Only the untagged id is judged. Whether a port also carries a VLAN as a trunk member needs the allowed-VLAN list, which not every device publishes, so the host's tagged subinterfaces (<code>eno1.84</code> and friends) are recorded as context rather than turned into a verdict that cannot be stood behind.</p>
+<h3 id="lacp-and-why-a-bond-is-one-link">LACP, and why a bond is one link<a class="anchor" href="#lacp-and-why-a-bond-is-one-link" aria-label="link to this section">#</a></h3>
+<p><code>lag.py</code>. Members are read from the <code>master</code> links in <code>/sys</code>; the far end's port-channel comes from <code>ifStackTable</code>, which is plain IF-MIB rather than a vendor MIB per platform.</p>
+<p>On the map the members are folded into the one logical link they form - <code>bond0 - Po12</code>, with the individual cables listed in the overlay. Four members drawn as four edges says a server has four separate connections to the same switch, which is both wrong and the kind of wrong that stops people trusting the picture.</p>
+<p>Folding happens only on evidence: members of the same bond, landing on the same device. Two members on two different switches stay two links, because that is a fact worth seeing. A bond with one live member stays one link. The per-device tables are untouched and still show one row per cable - that is what you need in order to go and unplug something.</p>
+<h3 id="optics">Optics<a class="anchor" href="#optics" aria-label="link to this section">#</a></h3>
+<p><code>optics.py</code>. <code>ethtool -m</code> already decodes the module EEPROM into readable fields, so that is parsed rather than SFF-8472 re-implemented. One command per host covers every lit port.</p>
+<p>Comparison is ordered by how little room there is to argue:</p>
+<ol><li><strong>fibre type</strong> - single-mode glass into a multimode module cannot work, and nothing in link state will tell you;</li><li><strong>speed</strong>;</li><li><strong>wavelength</strong>, with 50 nm of slack for vendor rounding;</li><li><strong>form factor</strong> on the same fibre - a warning, not a fault.</li></ol>
+<p>Reach is read and shown but never judged. A 10 km optic on a 2 m patch lead is a normal thing to find in a lab, and flagging it would train people to ignore the column.</p>
+<p>The far end has to be a port this run actually looked at, which in practice means the direct cables - exactly the links where a mismatch is both likely and invisible. A switch nobody can log into keeps its module to itself and the verdict stays UNKNOWN.</p>
+<p>Digital diagnostics - RX and TX power, temperature - are reported when the module has them and said to be absent when it does not. Every optic on the bench this was written against is silent about its own power, which is normal and must not read as a missing measurement on a failing link.</p>
+<h3 id="spanning-tree">Spanning tree<a class="anchor" href="#spanning-tree" aria-label="link to this section">#</a></h3>
+<p><code>stp.py</code>, standard BRIDGE-MIB only. Forwarding is the quiet case. Blocking, listening and learning are surfaced - not as faults, but because they answer "the cable is fine, so where is the traffic". A redundant topology with STP working is not an error.</p>
+<p><code>dot1dStpPortTable</code> is indexed by bridge port, not ifIndex; <code>dot1dBasePortIfIndex</code> bridges the two.</p>
+<p>Topology-change counters are recorded and deliberately not judged. Calling a tree unstable needs observations over time, which is what the snapshot diff is for; guessing from one reading is how a tool earns a reputation for crying wolf.</p>
+<p><strong>Unverified on hardware.</strong> The switch this was written beside runs no spanning tree and publishes none of these objects. The decoding is covered by tests against a fake bridge and has never been read off a live one.</p>
+<hr>
+<h2 id="6b-timing-and-the-cable-nothing-announces">6b. Timing, and the cable nothing announces<a class="anchor" href="#6b-timing-and-the-cable-nothing-announces" aria-label="link to this section">#</a></h2>
+<p><code>linkfinder/ptp.py</code> and <code>linkfinder/ptp_snmp.py</code>. Runs by default on Linux targets; <code>--no-ptp</code> turns the whole thing off.</p>
+<p>Four rungs, ordered by how little cooperation each needs from the device being asked. Every one reports which rung answered, and silence on one rung is never read as an answer from another: a switch that ignores management messages is still emitting Announce, and the passive read has already proved it is there.</p>
+<table><thead><tr><th>Rung</th><th>How</th><th>Needs</th></tr></thead><tbody><tr><td>0</td><td>Announce frames read off the wire</td><td>nothing</td></tr><tr><td>1</td><td>the protocol's own management messages, via <code>pmc</code></td><td>nothing</td></tr><tr><td>2</td><td>SNMP: RFC 8173 PTPBASE-MIB, then vendor trees</td><td>the community</td></tr><tr><td>3</td><td>per-NOS CLI <code>show ptp ...</code></td><td>switch login (not built)</td></tr></tbody></table>
+<p><strong>Why.</strong> A fronthaul port is normally cabled straight into another server or a radio. There is no switch in the path, so no forwarding table knows the MAC, and neither end runs lldpd, so there is no LLDP to read. Every rung of the ladder comes back empty and the port is reported unresolved. PTP is running on that cable regardless.</p>
+<p><strong>Daemon state, for every port.</strong> <code>ps</code> gives the running <code>ptp4l</code> command lines; the interface, domain, transport and role come straight off them. Each instance is then asked with <code>pmc -u -b 0 -d &lt;domain&gt; -s &lt;uds_address&gt;</code> for <code>PORT_DATA_SET</code> and <code>TIME_STATUS_NP</code>, which give the port state, our own clock identity, the grandmaster and the offset. The domain and socket are not optional decoration: a bare <code>pmc</code> talks to domain 0 on the default socket and returns nothing on a host running two instances on domain 24, which looks exactly like PTP not being configured.</p>
+<p><strong>The wire, for ports LLDP could not resolve.</strong> A separate short capture, filter <code>ether proto 0x88f7 or udp port 319 or udp port 320</code>, 25 frames or four seconds. It is deliberately a second capture rather than an addition to the LLDP filter: PTP at <code>logSyncInterval -4</code> is sixteen messages a second, and folding it into a five-frame LLDP capture would flush out the one frame that capture exists to catch.</p>
+<p><strong>From a clock back to a machine.</strong> The PTPv2 header carries <code>sourcePortIdentity</code>, and linuxptp builds that identity from the interface MAC by inserting <code>ff:fe</code> in the middle. Undo that and the identity becomes a MAC; match the MAC against the ports we interrogated in the same run and the far end has a name. An identity not built from a MAC is left alone rather than turned into a device that does not exist.</p>
+<p><strong>How far the evidence goes.</strong> A PTP event frame is multicast. Hearing one proves a shared layer-2 segment, not a cable. The giveaway is arithmetic: if one clock is audible from two of our ports, at least one of those is not a direct link.</p>
+<table><thead><tr><th>What was seen</th><th>What is reported</th></tr></thead><tbody><tr><td>mutual, one to one in both directions</td><td>most likely a direct cable</td></tr><tr><td>the clock is heard from several of our ports</td><td>same layer-2 segment</td></tr><tr><td>the far end hears us but we did not hear it</td><td>shared segment, from its side</td></tr><tr><td>a clock belonging to no machine we scanned</td><td>the identity we heard, no more</td></tr></tbody></table>
+<p>Hearing is recorded in both directions on purpose. A four-second capture samples, so one end often catches the other while the reverse comes back empty; without the reciprocal entry the same cable would appear and disappear between runs.</p>
+<h3 id="rung-0-what-an-announce-actually-carries">Rung 0: what an Announce actually carries<a class="anchor" href="#rung-0-what-an-announce-actually-carries" aria-label="link to this section">#</a></h3>
+<p>Only the grandmaster identity was read at first, which threw away most of the message. The whole body is now decoded: <code>grandmasterPriority1</code> and <code>2</code>, <code>clockClass</code>, <code>clockAccuracy</code>, <code>stepsRemoved</code>, <code>timeSource</code>, the UTC offset, and the <strong>PATH_TRACE TLV</strong>.</p>
+<p><code>clockClass</code> is the one worth knowing. 6 means the clock is locked to a primary reference; 7 is holdover still within spec; 165 is a boundary clock running free; 255 is slave-only. A grandmaster that quietly slid from 6 to 165 is the difference between a healthy fronthaul and one about to drop cells, and nothing in <code>ip link</code> or LLDP will tell you. Values outside the G.8275.1 set are printed as numbers rather than guessed at.</p>
+<p><code>stepsRemoved</code> is how many boundary clocks away the grandmaster is, and PATH_TRACE names each one it crossed - the timing topology, handed over by the protocol. The TLV is optional, so an empty path trace means "not enabled", never "no boundary clocks in the way".</p>
+<p><strong>Naming a switch from its clock.</strong> A boundary clock derives its clock identity from its chassis MAC, and that is the same MAC it publishes as its LLDP chassis id. Matching clock identities against the switches already on the map - not only against our own NICs - is what turns <code>025566.fffe.000001</code> into a switch name. On the bench that identity belonged to the switch the servers were plugged into the whole time.</p>
+<h3 id="rung-1-asking-the-segment-with-no-credentials">Rung 1: asking the segment, with no credentials<a class="anchor" href="#rung-1-asking-the-segment-with-no-credentials" aria-label="link to this section">#</a></h3>
+<p>PTP carries its own management protocol - GET, SET and COMMAND messages over the same transport as the timing itself. <code>pmc -2 -i &lt;iface&gt; -d &lt;domain&gt; -b 1 'GET DEFAULT_DATA_SET'</code> puts the question on the wire and every clock on the segment that implements the responder answers, boundary clocks included. No SNMP, no login, nothing configured in advance.</p>
+<p>LinkFinder only ever sends GET. There is no code path here that can change a clock's configuration, which matters because the same mechanism could.</p>
+<p>Implementing the responder is optional and plenty of switches skip it. Measured on the bench: linuxptp answered in full over the wire, while the switch in the middle produced not one management frame in ten seconds. That is reported as "did not answer", not as "has no PTP" - rung 0 had already shown it was the grandmaster.</p>
+<h3 id="rung-2-asking-the-switch-over-snmp">Rung 2: asking the switch over SNMP<a class="anchor" href="#rung-2-asking-the-switch-over-snmp" aria-label="link to this section">#</a></h3>
+<p><code>linkfinder/ptp_snmp.py</code>, using the community discovery already has. This is the only rung that can see what a bystander cannot: which of the switch's own ports is taking time in, how long it has been in holdover, what it would fall back to.</p>
+<p>RFC 8173 defines PTPBASE-MIB at <code>1.3.6.1.2.1.241</code>; the twelve tables under <code>.1.1</code> are walked and whatever answers is kept. If none of them do, a short probe looks for a vendor tree worth naming - Cisco <code>1.3.6.1.4.1.9.9.760</code>, Juniper, Arista, Nokia - and reports that one exists without pretending to decode it.</p>
+<p>Support is patchy enough that deciding whether there is anything there is the first job. The bench switch publishes no PTP objects, no vendor tree and no sysORTable, and is reported as exactly that.</p>
+<p><strong>This rung is tested against a fake agent only.</strong> Nothing in the lab it was written in implements the MIB, so it has never been run against hardware that does. Treat its output as unproven until it has been.</p>
+<h3 id="the-clock-tree">The clock tree<a class="anchor" href="#the-clock-tree" aria-label="link to this section">#</a></h3>
+<p><code>ptp_tree.py</code>. Per-port facts answer "what is this port doing"; they do not answer "is everything on the same clock, and where does that clock come from". The ports are grouped into domains and the domains into trees.</p>
+<p>The distinction that keeps it usable: a server running a master on a point-to-point segment <strong>is</strong> the grandmaster of that segment, and in a fronthaul design that is the point. Such a grandmaster is reported as an island. Two grandmasters that are <em>not</em> ours sharing one domain number is a different matter and is reported as a split domain.</p>
+<pre><code>PTP, domain 24
+  grandmaster 025566.fffe.000001  (sw-core-1, class 6)
+      server1 enp23s0f2          SLAVE, offset -3 ns, path delay 9 ns, 1 step(s)
+      server4 enp101s0f1         SLAVE, offset -2 ns, path delay 120 ns, 1 step(s)
+  grandmaster 02aabb.fffe.000002  (class 6)
+      server3 enp23s0f0          SLAVE, offset +3 ns, path delay 21 ns, 1 step(s)
+  island: server1 enp23s0f0 is the grandmaster of its own segment
+      server2 enp101s0f3         SLAVE, offset +1 ns, path delay 72 ns
+  SPLIT DOMAIN: domain 24 follows 2 different grandmasters that are not ours</code></pre>
+<p>Per port, each against a named IEEE 1588 object:</p>
+<table><thead><tr><th>Finding</th><th>From</th><th>Confidence</th></tr></thead><tbody><tr><td>grandmaster not locked</td><td><code>gm.ClockClass</code> outside the locked set</td><td>high</td></tr><tr><td>offset past the threshold</td><td><code>offsetFromMaster</code></td><td>high</td></tr><tr><td>time not traceable</td><td><code>timeTraceable = 0</code> on a slave</td><td>medium</td></tr></tbody></table>
+<p>The offset threshold defaults to 1000 ns and is deliberately loose. G.8275.1 allows roughly 1.5 us end to end and a healthy boundary clock sits in the tens of nanoseconds, so a microsecond is far enough out to be worth a look and far enough in not to be an alarm.</p>
+<p><strong>A domain-level finding stays at domain level.</strong> The first version stamped the split onto every port in the domain, which on a six-port fronthaul host filled the issues column with one piece of news repeated. Only what was measured at a port goes on that port's row; the split is said once, in the report and on the line above the device table.</p>
+<p>Ports with nothing wrong get a clean verdict rather than none, so "checked and fine" stays distinguishable from "never looked".</p>
+<h3 id="where-the-numbers-come-from">Where the numbers come from<a class="anchor" href="#where-the-numbers-come-from" aria-label="link to this section">#</a></h3>
+<p>Nothing in the PTP output is invented, and the values mean the same thing on anyone's network:</p>
+<table><thead><tr><th>Shown</th><th>Field</th><th>Standard</th></tr></thead><tbody><tr><td><code>dom 24</code></td><td><code>domainNumber</code></td><td>IEEE 1588; <strong>24</strong> is what ITU-T G.8275.1 specifies, G.8275.2 uses 44, the default profile 0</td></tr><tr><td><code>SLAVE</code> / <code>MASTER</code></td><td><code>portState</code></td><td>IEEE 1588 (1588-2019 renames these TIME_RECEIVER / TIME_TRANSMITTER; linuxptp and the MIB still print the old names)</td></tr><tr><td><code>offset +0 ns</code></td><td><code>offsetFromMaster</code></td><td>IEEE 1588 CURRENT_DATA_SET</td></tr><tr><td><code>path delay 9 ns</code></td><td><code>meanPathDelay</code></td><td>IEEE 1588 CURRENT_DATA_SET</td></tr><tr><td><code>1 step</code></td><td><code>stepsRemoved</code></td><td>IEEE 1588</td></tr><tr><td><code>class 6</code></td><td><code>clockClass</code></td><td>IEEE 1588; the 135-165 band is G.8275.1</td></tr><tr><td><code>100 ns</code></td><td><code>clockAccuracy 0x21</code></td><td>IEEE 1588</td></tr><tr><td><code>GNSS</code></td><td><code>timeSource 0x20</code></td><td>IEEE 1588</td></tr></tbody></table>
+<p>The domain number is read from the running daemon and from the frame header - it is never assumed. A value we do not have a word for is printed as the value rather than guessed at: <code>class 99</code>, <code>accuracy 0x1b</code>.</p>
+<p><code>TIME_STATUS_NP</code> is read last and only to fill gaps. The NP means non-portable: it is linuxptp's own object, and a tool that took its headline number from there would return nothing on most boundary clocks.</p>
+<h3 id="rung-3-the-switch-cli">Rung 3: the switch CLI<a class="anchor" href="#rung-3-the-switch-cli" aria-label="link to this section">#</a></h3>
+<p>Not built. <code>show ptp clock</code> / <code>parent</code> / <code>port</code> would slot into the existing <code>Dialect</code> mechanism in <code>probe_switchcli.py</code> the same way the LLDP commands do, but it needs a login on the switch, and writing parsers against output nobody can run would produce code that only looks finished.</p>
+<hr>
+<h2 id="6c-comparing-two-scans">6c. Comparing two scans<a class="anchor" href="#6c-comparing-two-scans" aria-label="link to this section">#</a></h2>
+<p><code>linkfinder/diff.py</code>.</p>
+<pre><code>linkfinder --diff monday.topology.json tuesday.topology.json</code></pre>
+<p>A topology JSON is already a dated, complete record, so this needs no database and no agent - only the two files. Exit code is 0 when nothing changed and 1 when something did, so it can sit in a loop and only speak up when it matters.</p>
+<p><strong>Matching is the whole problem.</strong> A node id is derived from whatever identity was known at the time, so the same switch can be <code>chassis:aa:bb:cc:...</code> in one file and <code>ip:198.51.100.1</code> in the next. Devices are matched on the identities they carry, strongest first - chassis, serial, management address, name - so a device renamed or readdressed between scans is still the same device. Anything that cannot be matched is reported as added or removed rather than quietly paired with the wrong one.</p>
+<p><strong>A repatched cable is one event.</strong> A link that moved to the next port is reported as a move, naming both the old and the new endpoint, rather than as a removal plus an unrelated arrival. Reading it as two is how a short report turns into noise.</p>
+<p>Beyond devices and links it reports state, name, management addresses, the PTP grandmaster per interface, and any link whose verdict changed - a link that was MTU-clean on Monday and is not on Tuesday says so by name.</p>
+<hr>
+<h2 id="6c2-the-rack-pdu-and-which-socket-feeds-what">6c2. The rack PDU, and which socket feeds what<a class="anchor" href="#6c2-the-rack-pdu-and-which-socket-feeds-what" aria-label="link to this section">#</a></h2>
+<p>A network map answers which switch port a machine is in. It has nothing to say about which socket powers it, and that is the question asked when a rack has to come down, or when a server is dead and nobody knows whether it has power at all.</p>
+<p>An APC network management card answers both halves:</p>
+<pre><code>[AP7921B]      pdu 198.51.100.116, scanned
+               made by APC by Schneider Electric (MAC prefix (IEEE))
+               serial ZZ0000000000
+[Power]        AP7921B   serial ZZ0000000000
+               up for 201 Days 1 Hour 47 Minutes
+               8 outlet(s), 8 on
+               1   rack A top shelf                   On
+               3   timing source 198.51.100.11        On</code></pre>
+<p>The outlet names are whatever somebody typed when the rack was built. They are labels and not hostnames, they are printed exactly as written, and on most benches they are the only record of the wiring there is.</p>
+<p><strong>It is recognised before anything logs in.</strong> The card answers on port 22 and then has no shell at all - hand it a command the ordinary way and it returns nothing and closes the session, which is why a plain SSH probe reported a device that logged in and said nothing. Its SSH server names the library it is built on (<code>SSH-2.0-cryptlib</code>), which no general-purpose machine does, so one connection and no login is enough to know to speak to it differently.</p>
+<p><strong>Nothing is switched.</strong> The commands that could turn an outlet on or off are not sent, and are not in the tool at all. It reads <code>about</code>, <code>netstat</code> and <code>olStatus</code>.</p>
+<p>The model, serial and hardware address make it a device like any other: it goes on the map, it is held against NetBox, and the switch that learned its address can place it in a port.</p>
+<h2 id="6d-handsets-and-what-else-is-plugged-in">6d. Handsets, and what else is plugged in<a class="anchor" href="#6d-handsets-and-what-else-is-plugged-in" aria-label="link to this section">#</a></h2>
+<p>A lab machine has a second fan-out that no network protocol will ever tell you about: the phones, console cables and adapters on its USB ports. When a test fails the question is rarely "is the NUC up" - it is "is UE 3 still attached, and to which port". So those are drawn on the map too.</p>
+<h3 id="two-layers-and-why-only-one-of-them-is-opt-in">Two layers, and why only one of them is opt-in<a class="anchor" href="#two-layers-and-why-only-one-of-them-is-opt-in" aria-label="link to this section">#</a></h3>
+<p>Reading the USB tree is free and changes nothing, so it always runs:</p>
+<ul><li><strong>Linux</strong> - the files under <code>/sys/bus/usb/devices</code>. Each device publishes its maker, product, serial, the USB version it declares and the rate it actually negotiated. Hubs and interface entries are skipped: a hub is wiring, and listing a phone's four interfaces would turn one handset into four nodes.</li><li><strong>Windows</strong> - the PnP registry over SSH. Windows publishes no speed for a USB device, but it does publish the port: a location path ending <code>ACPI(SSnn)</code> is a SuperSpeed port and <code>ACPI(HSnn)</code> a high-speed one, which is the generation of the connection and therefore the thing being asked about.</li></ul>
+<p>Asking <strong>adb</strong> is a separate choice - <code>--adb</code> on the command line, <em>name handsets over adb</em> in the window. It is off by default because running <code>adb</code> may start an adb server on that host, and a server that was not running before is a change. When it is on, the tool runs exactly two kinds of command: <code>adb devices -l</code>, and <code>adb -s &lt;serial&gt; shell getprop</code> to read the model and the Android version. It never pushes, installs, reboots or sets anything.</p>
+<h3 id="what-ends-up-on-the-map">What ends up on the map<a class="anchor" href="#what-ends-up-on-the-map" aria-label="link to this section">#</a></h3>
+<p>Each thing on the bus becomes its own node, joined to its host by a link marked <code>usb</code>. The link is coloured by generation, and that is the whole message:</p>
+<table><thead><tr><th>Generation</th><th>Colour</th></tr></thead><tbody><tr><td>USB 3</td><td>blue</td></tr><tr><td>USB 2</td><td>black</td></tr><tr><td>USB 1</td><td>plain grey</td></tr></tbody></table>
+<p>Rates are not printed. The useful question is which generation a device came up as, not whether it negotiated 480 or 12 Mbit/s. The one warning raised is a device that <em>declares</em> USB 3 and came up as USB 2 - almost always the cable or the port, and worth a look. A device that declares USB 2 is not warned about: an FTDI console cable declares 2.00 and is a UART, not a slow phone, and is classified as a console cable rather than a handset for exactly that reason.</p>
+<p>Four identical phones on one NUC is normal, so a model name that repeats on a host carries its serial - <code>ONEPLUS A5000 (70b02c75)</code> - while a name nobody else shares is left alone.</p>
+<p>A USB link is <em>reported</em>, not <em>confirmed</em>: the host enumerated the device on its own bus, which is a reading rather than a guess, but only the host said it. See <strong>Link confidence</strong>.</p>
+<h3 id="losing-the-host-is-not-losing-the-phones">Losing the host is not losing the phones<a class="anchor" href="#losing-the-host-is-not-losing-the-phones" aria-label="link to this section">#</a></h3>
+<p>This matters enough to be a rule. If a NUC cannot be polled, its handsets are recorded as <code>UNKNOWN</code> - not as unplugged. "Twenty phones disconnected" and "one NUC stopped answering" are very different mornings, and only one of them is true. In the run record (see <strong>What changed since last time</strong>) that becomes a single line naming the host, with a count of what went out of sight with it.</p>
+<p>The reverse case is reported properly: if the host answered and a handset is no longer on its bus, it really was unplugged, and it is reported as such. A phone that is still on the bus but that adb may not talk to - <code>unauthorized</code>, <code>offline</code> - is degraded, not gone, and the line says which of the two it is.</p>
+<h2 id="6e0-the-management-controller-and-whether-it-answers">6e0. The management controller, and whether it answers<a class="anchor" href="#6e0-the-management-controller-and-whether-it-answers" aria-label="link to this section">#</a></h2>
+<p>A server's BMC has its own address, and nobody can see it from outside until they already know it. The host can: <code>ipmitool lan print</code> asks the controller over the internal channel, with no network in the way and no password to hold. It is read on every Linux host that has <code>ipmitool</code>, and a host without it says so rather than leaving a blank.</p>
+<pre><code>IPMI/BMC address
+  192.0.2.17     static, channel default
+                 the host it lives in CANNOT reach it
+                 other-server has it in its neighbour cache, so it is alive
+                 hardware address 00:00:5e:00:53:1c</code></pre>
+<p>Three facts, each worth something different:</p>
+<table><thead><tr><th>What</th><th>Why it matters</th></tr></thead><tbody><tr><td><strong>the address</strong></td><td>how you reach a machine that will not boot</td></tr><tr><td><strong>static or DHCP</strong></td><td>a static address that answers to nobody is a different fault from a DHCP one</td></tr><tr><td><strong>whether it answers</strong></td><td>the day you need the controller is the day you find out</td></tr></tbody></table>
+<h3 id="who-did-the-asking">Who did the asking<a class="anchor" href="#who-did-the-asking" aria-label="link to this section">#</a></h3>
+<p>A controller usually sits on a management network the host itself is not on, so the host failing to ping it proves very little. Saying <em>"nothing is there"</em> on that evidence sends somebody to a rack for no reason.</p>
+<p>So the sentence names who tried, and then the map is asked: if any other machine on it holds that address in its neighbour cache, the controller is alive and the report says so. Measured on a live server - the host could not reach its own BMC, and a machine already on the map had the address the whole time.</p>
+<h3 id="against-netbox">Against NetBox<a class="anchor" href="#against-netbox" aria-label="link to this section">#</a></h3>
+<p>Where the inventory has an IPMI interface for the device, the two are compared:</p>
+<pre><code>NetBox records the same address
+NetBox records 192.0.2.99 on its IPMI interface - these disagree
+NetBox holds no IPMI address for this device - 192.0.2.17 is what it would be</code></pre>
+<p><strong>Nothing is written to NetBox.</strong> An empty record is offered the address as text, for a person to paste. Creating and correcting records is somebody's job, and it is not this tool's.</p>
+<h2 id="6e-the-serial-number-and-which-physical-box-this-is">6e. The serial number, and which physical box this is<a class="anchor" href="#6e-the-serial-number-and-which-physical-box-this-is" aria-label="link to this section">#</a></h2>
+<p>A map that cannot say which physical unit a node is cannot be compared with an inventory - and an inventory is keyed by serial, not by hostname or address. So every access path is asked for it, each in its own language, and the answers land in one field.</p>
+<table><thead><tr><th>Device</th><th>Where the serial comes from</th></tr></thead><tbody><tr><td>Linux</td><td>SMBIOS - <code>/sys/class/dmi/id/product_serial</code>, falling back to the chassis then the board</td></tr><tr><td>Windows</td><td><code>Win32_BIOS.SerialNumber</code> over the SSH session already open</td></tr><tr><td>ESXi</td><td><code>esxcli hardware platform get</code></td></tr><tr><td>BMC</td><td>Redfish <code>SerialNumber</code> on the Chassis, then the System</td></tr><tr><td>Switch</td><td>SNMP ENTITY-MIB <code>entPhysicalSerialNum</code>, taking the chassis entry</td></tr></tbody></table>
+<p>Measured on real machines rather than assumed: a Dell desktop, two Supermicro servers, a Windows NUC, a FibroLAN-class switch over SNMP and a Supermicro BMC over Redfish all answered with a real serial.</p>
+<h3 id="a-placeholder-is-not-a-serial">A placeholder is not a serial<a class="anchor" href="#a-placeholder-is-not-a-serial" aria-label="link to this section">#</a></h3>
+<p>Boards ship with <code>To Be Filled By O.E.M.</code>, <code>Default string</code>, <code>Not Specified</code>, <code>System Serial Number</code>, <code>0123456789</code>. Accepting those would be worse than having nothing: every machine of that model carries the same text, so they would all merge into one device on the map. Anything on that list is refused, and the device is reported as publishing no serial rather than given a fake one. The model and the maker are still kept - those are worth knowing even where the serial is missing.</p>
+<p>The order is deliberate. <code>product_serial</code> is the unit as sold. On a whitebox it is often a placeholder while the <strong>board</strong> serial is real, so the chassis and the board are read in the same breath and used in that order. <code>product_serial</code> is root-only on many kernels, which is the other reason all three are read.</p>
+<h3 id="what-it-is-used-for">What it is used for<a class="anchor" href="#what-it-is-used-for" aria-label="link to this section">#</a></h3>
+<ul><li><strong>Identity.</strong> Two machines of one model with one hostname stay two devices, and one box that answers under two chassis MACs is folded into one. The serial is a stronger key than either.</li><li><strong>Finding a device.</strong> It is on the <strong>go to</strong> line and in the filter, so a number read off a label or pasted out of an inventory lands on the device. The filter folds case, so it does not matter how the label is printed.</li><li><strong>Comparing with a record of what should be there.</strong> This is what makes a NetBox comparison possible later; that is not built yet.</li></ul>
+<p>Nothing extra is sent to reach any of this: these are reads over connections the probes have already opened.</p>
+<h2 id="6f-netbox-what-should-be-there-next-to-what-is">6f. NetBox: what should be there, next to what is<a class="anchor" href="#6f-netbox-what-should-be-there-next-to-what-is" aria-label="link to this section">#</a></h2>
+<p>An inventory is a record of intent - somebody wrote down which box sits where and what it is for. A scan is a record of fact. Neither is authoritative alone; the useful output is where the two disagree.</p>
+<pre><code>linkfinder --topology 198.51.100.1 -u root -p secret --netbox \
+    --setup-tag dio --topology-json site.topology.json</code></pre>
+<p>The address and token come from <code>--netbox-url</code> / <code>--netbox-token</code>, else <code>LINKFINDER_NETBOX_URL</code> / <code>LINKFINDER_NETBOX_TOKEN</code>, else the defaults file. Nothing is hard-coded. The window has a <strong>NetBox</strong> tick that does the same.</p>
+<p><strong>It reads. It does not write.</strong> There is no code path in LinkFinder that POSTs, PATCHes or DELETEs anything in NetBox, and the tests check that. The corrections it finds are written to a file for a person to apply.</p>
+<h3 id="the-token-which-catches-everyone-once">The token, which catches everyone once<a class="anchor" href="#the-token-which-catches-everyone-once" aria-label="link to this section">#</a></h3>
+<p>NetBox 4.5 issues <strong>version 2</strong> tokens, and they are two halves: a <strong>key</strong> that stays visible on the token page and a <strong>secret</strong> shown only once when it is created. The header wants both:</p>
+<pre><code>Authorization: Bearer nbt_&lt;key&gt;.&lt;secret&gt;</code></pre>
+<p>An older NetBox issues a version 1 token - 40 hexadecimal characters, no key - and that one wants <code>Authorization: Token &lt;token&gt;</code> instead. The tool picks the header from the shape of what you gave it, so either kind works without being told which it is. Checked against the NetBox documentation on 11 Oct 2026: v1 tokens are deprecated as of NetBox 4.6 and are removed in 5.0, so a site still using one has an upgrade to plan rather than a setting to change.</p>
+<p>Sending the secret alone answers <code>403 {"detail":"Invalid v1 token"}</code>, which reads like a wrong token and is really half of a right one. The tool says so in those words before it tries. Note <code>/api/status/</code> answers with no token at all, so a 200 from it proves nothing.</p>
+<h3 id="what-identifies-a-device">What identifies a device<a class="anchor" href="#what-identifies-a-device" aria-label="link to this section">#</a></h3>
+<p>In the order it is trusted. Measured on a real estate of 10 415 devices, where 10 345 carry a serial and only 2 610 have a management address on record:</p>
+<table><thead><tr><th>Signal</th><th>Settles it?</th></tr></thead><tbody><tr><td>a link you confirmed earlier</td><td>yes</td></tr><tr><td>its <strong>serial</strong></td><td>yes</td></tr><tr><td>its serial inside the NetBox device name (<code>bench-b-SN0000000X...</code>)</td><td>yes</td></tr><tr><td>a MAC</td><td>helps, but asks for confirmation on its own</td></tr><tr><td>an address</td><td><strong>a hint only</strong></td></tr><tr><td>a hostname</td><td><strong>a hint only</strong></td></tr></tbody></table>
+<p>An address says what answers there today - which is exactly why a swapped box is detectable, and exactly why it cannot prove identity. A device found only by hints is reported as <code>NOT_VERIFIED</code> and flagged for a person to confirm; it is never moved into somebody's Setup on that basis. Two records answering to one device is a <code>CONFLICT</code>, not a coin toss.</p>
+<p>MAC is used when it happens to be there and is never required: in this estate about one NetBox interface in a hundred carries one.</p>
+<h3 id="the-five-verdicts">The five verdicts<a class="anchor" href="#the-five-verdicts" aria-label="link to this section">#</a></h3>
+<table><thead><tr><th>It says</th><th>When</th></tr></thead><tbody><tr><td><code>CONFLICT</code></td><td>more than one NetBox record answers to this device</td></tr><tr><td><code>MISMATCH</code></td><td>they disagree about something checkable - a swapped serial, an address, a status</td></tr><tr><td><code>MISSING_IN_NETBOX</code></td><td>we read a serial NetBox has never heard of</td></tr><tr><td><code>NOT_VERIFIED</code></td><td>not enough to go on, or only hints matched</td></tr><tr><td><code>MATCH</code></td><td>everything checkable agrees</td></tr></tbody></table>
+<p>Worst first, each with its evidence and a confidence. A device nobody could reach is left out entirely: failing to get in says nothing about whether the documentation is right. Things an inventory would not hold - a BMC's virtual keyboard, a console lead - are not judged at all.</p>
+<p>Interface and cable records are <strong>not</strong> compared, and that is a measurement rather than a shortcut. A server's own ports cannot be lined up with NetBox: barely one interface in a hundred carries a MAC, and about one name in a thousand looks like an OS name - NetBox holds human labels like <code>interface13.1</code>. Switch ports are closer but still not equal: the switch is often in NetBox under the same name, yet LLDP reports <code>1/1/13</code> where NetBox says <code>Port13</code>. The relationship is regular enough to guess at, which is exactly why it is left to a person to confirm instead.</p>
+<h3 id="an-address-netbox-never-recorded-is-a-gap-not-a-contradiction">An address NetBox never recorded is a gap, not a contradiction<a class="anchor" href="#an-address-netbox-never-recorded-is-a-gap-not-a-contradiction" aria-label="link to this section">#</a></h3>
+<p>A server here commonly has one address on record and it is the BMC's, on an interface called <code>IPMI</code>. Comparing what answered against NetBox's primary address therefore accused the documentation of being wrong when it was merely incomplete - it fired on real devices before it was fixed. Every address NetBox holds for a device is read, and a device is only reported when the address it answered on is among <strong>none</strong> of them, as <code>MISSING_IN_NETBOX</code>, saying what NetBox does hold and on which port.</p>
+<h3 id="netbox-is-optional">NetBox is optional<a class="anchor" href="#netbox-is-optional" aria-label="link to this section">#</a></h3>
+<p>Everything above is opt-in and nothing else depends on it. Without <code>--netbox</code> no NetBox code runs at all; the HTTP library is imported only when a request is actually made, so a machine without it still runs the whole tool. With <code>--netbox</code> on and nothing configured, or with NetBox unreachable, the run says so in one line and carries on - the map is identical either way. Setups keep working without NetBox, because they are remembered locally as well.</p>
+<p>Proven by running the same scan three ways - no NetBox, NetBox asked for but not configured, and NetBox pointed at a dead address - and comparing the maps: 6 devices and 5 links in all three, with the same setups.</p>
+<h3 id="a-setup-is-a-tag-somebody-named">A Setup is a tag somebody named<a class="anchor" href="#a-setup-is-a-tag-somebody-named" aria-label="link to this section">#</a></h3>
+<p>Benches live in NetBox as tags. But this estate has 985 tags and 952 of them are in use - teams, programmes, projects and benches all mixed together, with nothing in the data telling them apart. So <strong>nothing is a Setup until you say it is</strong>: <code>--setup-tag dio</code>, repeatable, or <code>netbox.setup_tags</code> in the defaults file, or the <strong>Setup tags...</strong> button in the window.</p>
+<p><code>--netbox-tags</code> lists the tags carried by the devices this scan matched - a handful rather than the estate's hundreds - so there is a short list to choose from. A name you marked by hand on the map is kept beside the ones that came from NetBox.</p>
+<h3 id="shared-kit-joins-the-bench-it-serves">Shared kit joins the bench it serves<a class="anchor" href="#shared-kit-joins-the-bench-it-serves" aria-label="link to this section">#</a></h3>
+<p>Pick a Setup on the map and you get its devices <strong>and</strong> the switch they hang off, even though that switch belongs to no Setup - a picture of a bench without its uplink is not a picture of how anything is connected. The rule is one hop out, and only to devices that are in no Setup at all: a neighbour that belongs to a different bench is somebody else's and stays out. Borrowed kit is drawn with a dashed outline.</p>
+<h2 id="6f0-the-map-in-your-browser">6f0. The map in your browser<a class="anchor" href="#6f0-the-map-in-your-browser" aria-label="link to this section">#</a></h2>
+<p>This is where the work happens. The window scans; the picture is where you look at what came back and tell the tool what it is looking at.</p>
+<h3 id="what-you-are-looking-at">What you are looking at<a class="anchor" href="#what-you-are-looking-at" aria-label="link to this section">#</a></h3>
+<p>Every box is a device and every line is a link that was actually found. A line carries the port it uses on both ends, which is the question the tool exists to answer. Colour says what kind of thing it is; a dashed line means the link was inferred rather than reported by both ends.</p>
+<p>Click a device and the panel on the right says what is worth knowing about it: what it is, its serial, its timing, the temperature of its cards and which ports they are on, its optics, and the address it answers on. Nothing that merely explains an absence is printed - if there is no "How to reach it", there is no way in, and a paragraph saying so would help nobody.</p>
+<h3 id="live-or-saved">Live or saved<a class="anchor" href="#live-or-saved" aria-label="link to this section">#</a></h3>
+<p>The map is <strong>live</strong> while the window that opened it is open. Live means it can change things: a setup you type is written the moment you type it.</p>
+<p>A page you saved to a file is a <strong>viewer</strong>. It draws, filters, searches and prints, and it cannot mark anything - there is nothing listening. The marking controls are not shown rather than shown and broken, and the page reaches nothing on the network, so it opens from a memory stick on a machine with no connection at all.</p>
+<h3 id="the-answers-are-files-not-a-panel">The answers are files, not a panel<a class="anchor" href="#the-answers-are-files-not-a-panel" aria-label="link to this section">#</a></h3>
+<p>There used to be a strip of buttons along the top - what NetBox does not know, what moved since last time, what does not add up. Each opened a list over the map. The panel sat between the reader and the picture, the answers were gone the moment the tab closed, and nothing was there at all unless somebody thought to press a button.</p>
+<p>A table is the right shape for all three. It sorts, it filters, it goes in a ticket, and it is still there tomorrow. So they are worked out every time a map is drawn and written beside it:</p>
+<table><thead><tr><th>File</th><th>What is in it</th></tr></thead><tbody><tr><td><code>&lt;map&gt;.csv</code></td><td>one row per link: device, serial, setups, local port, far end</td></tr><tr><td><code>&lt;map&gt;.netbox.csv</code></td><td>every disagreement between the scan and the inventory</td></tr><tr><td><code>&lt;map&gt;.moved.csv</code></td><td>what changed against the previous map</td></tr><tr><td><code>&lt;map&gt;.odd.csv</code></td><td>what does not add up on the map's own terms</td></tr></tbody></table>
+<p>A question that was not asked gets no file. An empty <code>netbox.csv</code> beside the map would say NetBox agreed about everything, when nobody asked it anything.</p>
+<p><strong><code>&lt;map&gt;.netbox.csv</code> is the one people are sent to find</strong>, so it is laid out to be read across rather than down:</p>
+<table><thead><tr><th>verdict</th><th>device</th><th>field</th><th>on the network</th><th>in NetBox</th></tr></thead><tbody><tr><td>MISMATCH</td><td>core-a</td><td>serial</td><td>230317243800564</td><td>23081601</td></tr><tr><td>MISSING_IN_NETBOX</td><td>iper-a</td><td>ip_address</td><td>192.0.2.14</td><td>192.0.2.114</td></tr><tr><td>NOT_VERIFIED</td><td>vm-a</td><td></td><td></td><td>nothing to look it up by</td></tr><tr><td>MATCH</td><td>sw-one</td><td></td><td></td><td>agrees</td></tr></tbody></table>
+<p>The two sides used to be one sentence - <em>"it holds serial X, but NetBox records Y there"</em> - which reads well and compares badly. Both values were always kept separately, so putting them in their own columns costs nothing and a roomful of people can scan it.</p>
+<p><code>NOT_VERIFIED</code> matters as much as the disagreements: it says the device published nothing to look it up by, which is not the same as agreeing.</p>
+<p><strong>Finding them.</strong> <code>File</code> → <code>Show the files it wrote</code> opens the folder with the NetBox table already selected. The path has always been announced in the log, and the log is a tab nobody has open - during a demonstration the question "where is the comparison with NetBox?" was asked about a file that had been sitting there, correct, for an hour.</p>
+<p><strong>Handing it to somebody.</strong> <code>File</code> → <code>Save what NetBox does not agree with...</code> writes that table wherever you want it. If the run did not ask NetBox, this asks it now rather than refusing, and with nothing scanned at all it says so instead of writing an empty table - a file reporting that NetBox disagreed about nothing, when NetBox was never asked, is worse than no file.</p>
+<p>What stayed on the picture is what only works there: marking setups, which is done by selecting devices and typing a name, and searching. Choosing which NetBox tags name a Setup is back in the window, under <strong>Advanced -&gt; NetBox -&gt; Setup tags...</strong></p>
+<h3 id="finding-things">Finding things<a class="anchor" href="#finding-things" aria-label="link to this section">#</a></h3>
+<p>The search box matches what a device <strong>is</strong> - its name, address, serial or kind - and not everything it has ever heard of, so searching for a switch finds the switch rather than every host that mentioned it.</p>
+<p>The setup filter shows one bench at a time. A device that serves several benches - a shared uplink - stays visible in each of them, because hiding it would be a lie about the picture.</p>
+<h3 id="marking-a-setup">Marking a setup<a class="anchor" href="#marking-a-setup" aria-label="link to this section">#</a></h3>
+<p>Click a device, type the bench name in the panel, press Add. That is the whole thing, and it is written immediately - there is no save step and no file to import afterwards.</p>
+<p>For more than two or three devices, use <strong>Mark a whole bench</strong> instead: a bench usually arrives as a list of addresses in a ticket, and pasting a list is one action where clicking twelve devices is twelve chances to miss one.</p>
+<h3 id="printing-it">Printing it<a class="anchor" href="#printing-it" aria-label="link to this section">#</a></h3>
+<p>The browser's own print works. The navigation and the strips are hidden, the picture and the panel are not.</p>
+<h2 id="6g-marking-a-setup-on-the-map">6g. Marking a setup on the map<a class="anchor" href="#6g-marking-a-setup-on-the-map" aria-label="link to this section">#</a></h2>
+<p>The map is where the benches are visible, so it is where they are marked - and the window writes the change the moment you make it.</p>
+<p>Press <strong>Open map</strong> in the window. It serves the map to your browser and answers it for as long as the window is open. Click a device and its panel has a <strong>Setup</strong> section: the names it is already in, as chips you can take off, and a box to add another. For several at once, tick <strong>mark setups</strong>, drag a box round them, and the strip adds or removes a name for the lot.</p>
+<p>There is nothing to save. No download, no file to find, no import, and no question when you close the tab. The line under the strip says <code>saved</code> when the change has been written, and says so plainly if it has not - a failure is never dressed up as a success.</p>
+<p>A setup is remembered against the device's <strong>serial</strong> first, then its chassis id, then its address, so a machine that changed address keeps its bench.</p>
+<h3 id="what-the-server-is-and-what-it-is-not">What the server is, and what it is not<a class="anchor" href="#what-the-server-is-and-what-it-is-not" aria-label="link to this section">#</a></h3>
+<p>It binds to <code>127.0.0.1</code> on a port the operating system picks, carries a one-time token in its own address, and refuses anything that does not have it - a wrong token looks exactly like a wrong path. It answers four things: the map, the current setups, a setup change, and the list of what NetBox does not know. It reads no files, takes no names from a request, sets no cookies and sends no CORS headers, so no other page on your machine can talk to it. It starts when you press <strong>Open map</strong> and dies with the window.</p>
+<h3 id="a-saved-copy-is-a-viewer">A saved copy is a viewer<a class="anchor" href="#a-saved-copy-is-a-viewer" aria-label="link to this section">#</a></h3>
+<p>Open a <code>.html</code> file you saved earlier and it works exactly as it always did - offline, with no server and nothing to install - but it cannot mark anything, and the marking controls are not shown at all. That is the honest state of affairs: a page opened from disk cannot write to disk. Pretending otherwise is what produced files nobody wanted.</p>
+<h3 id="opening-a-shell-from-the-map">Opening a shell from the map<a class="anchor" href="#opening-a-shell-from-the-map" aria-label="link to this section">#</a></h3>
+<p>Clicking a device offers <code>ssh://&lt;address&gt;</code>. A page cannot start a session itself; it hands the address to whatever the machine registered for that scheme. When nothing is registered the click would normally do nothing at all, so the page notices and says so, with the command to run and what to install. The window has its own SSH button that opens a session in-process and uses everything in Advanced - per-host login, key file, spare logins and the port.</p>
+<h3 id="what-to-add-in-netbox">What to add in NetBox<a class="anchor" href="#what-to-add-in-netbox" aria-label="link to this section">#</a></h3>
+<p><strong>What to add in NetBox</strong> in the window collects the devices and setups NetBox does not know about, shows them, and offers to write them out for whoever has the rights to apply them. It is produced when you ask for it rather than appearing after every change, and nothing is sent anywhere.</p>
+<h2 id="6j2-one-answer-for-the-team-not-one-per-laptop">6j2. One answer for the team, not one per laptop<a class="anchor" href="#6j2-one-answer-for-the-team-not-one-per-laptop" aria-label="link to this section">#</a></h2>
+<p>By default everything the tool remembers - which bench a device is on, the maps it keeps - lives in your home folder. That is right for one person and wrong for a team: two engineers scan the same bench and get two different answers, with nothing to say why.</p>
+<p>Point it at a folder everybody can reach:</p>
+<pre><code>linkfinder --shared //fileserver/lab/linkfinder ...</code></pre>
+<p>or set it once, in the defaults file, and everything agrees from then on:</p>
+<pre><code>{ "shared": "//fileserver/lab/linkfinder" }</code></pre>
+<p>A UNC path works too; in JSON its backslashes have to be doubled, which is why the forward-slash form above is the easier one to type.</p>
+<h3 id="how-it-avoids-the-usual-trouble">How it avoids the usual trouble<a class="anchor" href="#how-it-avoids-the-usual-trouble" aria-label="link to this section">#</a></h3>
+<table><thead><tr><th>Worry</th><th>What is actually done</th></tr></thead><tbody><tr><td>two people writing at once</td><td><strong>each person writes only their own file</strong> and reads everybody's, so there is no lock and no last-writer-wins</td></tr><tr><td>the share blinks mid-write</td><td>written through a temporary file and renamed, so the old one survives whole</td></tr><tr><td>the share is down</td><td>falls back to this machine and <strong>says so</strong> - a scan is never blocked</td></tr><tr><td>whose mark is this?</td><td><code>--where</code> names everyone marking in that folder</td></tr><tr><td>marks made before sharing</td><td>carried into your file on the first run, and the private copy is kept, renamed, not deleted</td></tr></tbody></table>
+<p>The layout is plain files, so it can be read, backed up or put in version control by anyone:</p>
+<pre><code>&lt;shared&gt;/setups/&lt;user&gt;@&lt;host&gt;.json
+&lt;shared&gt;/history/&lt;when&gt;-&lt;user&gt;.json</code></pre>
+<p>A device two people put in different setups ends up in both. That is not a conflict to resolve: a shared uplink really does serve several benches, and the model has always allowed a list. <code>who_says</code> on the panel names who put it there, so a genuine disagreement is visible rather than merged away silently.</p>
+<h3 id="say-where-things-are">Say where things are<a class="anchor" href="#say-where-things-are" aria-label="link to this section">#</a></h3>
+<pre><code>linkfinder --where</code></pre>
+<pre><code>settings and logins   C:\Users\you\.linkfinder.json
+passwords             Windows DPAPI, keyed to you
+setups                //fileserver/lab/linkfinder/setups/you@your-pc.json
+maps it remembers     //fileserver/lab/linkfinder/history (6 kept)
+switches it learned   C:\Users\you\.linkfinder-switches.json
+
+setups and kept maps are shared, in //fileserver/lab/linkfinder, as you@your-pc
+marking here as well: olga@bench2</code></pre>
+<p>The window writes the same line into its log when it opens, and the map shows it under the NetBox strip.</p>
+<blockquote>Silence about this was the actual fault. A mark private to one laptop and a mark the whole team shares looked identical, so nobody could tell which they had.</blockquote>
+<h2 id="6m-a-range-of-addresses">6m. A range of addresses<a class="anchor" href="#6m-a-range-of-addresses" aria-label="link to this section">#</a></h2>
+<p>A bench is held as "the .74 network" or ".200 to .210", not as a list. All three ways a person writes that are taken, anywhere a target is taken:</p>
+<pre><code>linkfinder --targets 10.0.0.0/24
+linkfinder --targets 10.0.0.5-10.0.0.40
+linkfinder --targets 10.0.0.5-40            the same, written short</code></pre>
+<p>Nothing is swept silently. A range larger than 1024 addresses is refused with the number, because a typo that starts sixty-five thousand login attempts is a tool nobody is allowed to run twice:</p>
+<pre><code>10.0.0.0/16 holds 65536 addresses - more than the 1024 this will sweep. Narrow it
+10.0.0.8-10.0.0.5 runs backwards - put the lower address first</code></pre>
+<p>Ranges open out before anything else looks at them, so they work the same for one device, for a map, and together with the NetBox lookup below.</p>
+<h2 id="6n-looking-something-up-in-netbox">6n. Looking something up in NetBox<a class="anchor" href="#6n-looking-something-up-in-netbox" aria-label="link to this section">#</a></h2>
+<p>You hold a bench name or a number off a label, not an address.</p>
+<pre><code>linkfinder --netbox-find bench-a
+linkfinder --netbox-find SN0000000X5304276</code></pre>
+<p>It tries the serial, the asset tag, the device name and the tag, and says which one landed. On the map the same thing is the <strong>look one up</strong> drawer behind the NetBox door.</p>
+<h3 id="letting-netbox-say-where-to-scan">Letting NetBox say where to scan<a class="anchor" href="#letting-netbox-say-where-to-scan" aria-label="link to this section">#</a></h3>
+<pre><code>linkfinder --from-netbox bench-a --topology-json bench.json</code></pre>
+<p>The addresses NetBox holds for that bench become the scan's targets, and the map is drawn from what is actually there. Where the inventory is thin it says so rather than looking thorough:</p>
+<pre><code>from netbox: 10 record(s) carry 'bench-a', but an address is recorded for
+only 1 of them - the rest cannot be scanned until somebody adds one</code></pre>
+<p>That sentence is the useful half of the answer: it names a gap somebody can close, instead of reporting a bench of one device.</p>
+<h2 id="6o-what-does-not-add-up">6o. What does not add up<a class="anchor" href="#6o-what-does-not-add-up" aria-label="link to this section">#</a></h2>
+<p>Four things a network does that no single device will admit to:</p>
+<table><thead><tr><th>What</th><th>How it is seen</th></tr></thead><tbody><tr><td><strong>one address, two owners</strong></td><td>two machines on the segment learned different hardware addresses for it</td></tr><tr><td><strong>one MAC in two places</strong></td><td>the same hardware address turns up on two ports</td></tr><tr><td><strong>a ring in the cabling</strong></td><td>a cycle in the discovered topology, with whether spanning tree is holding it open</td></tr><tr><td><strong>a cable whose ends disagree</strong></td><td>MTU, VLAN, speed or LACP read differently at each end</td></tr></tbody></table>
+<pre><code>linkfinder --map bench.json --suspicious</code></pre>
+<p>On the map this is written to <code>&lt;map&gt;.odd.csv</code>, and each finding can point at the devices it concerns.</p>
+<p>Nothing here decides anything. Every one of these can be innocent - a gateway answering for a subnet looks exactly like a stolen address until somebody who knows the bench looks at it - so each finding carries what was seen and how sure it is.</p>
+<blockquote>A check that breaks never reports a clean network. If one of the four cannot run, it says so as a finding marked <code>UNCLEAR</code>, because the one thing worse than a missed fault is a false all-clear.</blockquote>
+<h2 id="6k-marking-a-whole-bench-at-once">6k. Marking a whole bench at once<a class="anchor" href="#6k-marking-a-whole-bench-at-once" aria-label="link to this section">#</a></h2>
+<p>Nothing here starts from a blank file. Ask for the sheet and it comes back filled in - every device the map knows, with its setup already in the first column:</p>
+<pre><code>linkfinder --setup-sheet setups.csv</code></pre>
+<pre><code>setup,device,serial,address,kind,state,key (do not edit)
+bench 1,server-a,S907083X6310614,10.0.0.5,host,scanned,ip:10.0.0.5
+,radio-1,,169.254.15.16,radio,unscanned,chassis:2c:a5:39:00:14:01</code></pre>
+<p>Open it in Excel, type a setup next to the rows that need one, save, and hand it back:</p>
+<pre><code>linkfinder --mark-list setups.csv</code></pre>
+<p><strong>What is in the sheet is what you get.</strong> A name typed in puts the device in that setup; a cell cleared takes it out; a row left alone stays as it was. Several setups on one device are separated by commas. The last column is how a device is recognised even after it is renamed - leave it alone.</p>
+<p>In the window it is the <strong>Setups...</strong> button: it asks whether you are saving a sheet or loading one, and does the rest. On the map it is <strong>Mark a whole bench</strong>, which offers the same sheet and takes it pasted straight back.</p>
+<h3 id="or-just-a-list">Or just a list<a class="anchor" href="#or-just-a-list" aria-label="link to this section">#</a></h3>
+<p>When the bench is only a few devices and they are all going in one setup, a plain list is enough:</p>
+<pre><code>linkfinder --mark-setup "bench 7" --mark-list bench.txt</code></pre>
+<pre><code># one per line; anything after # is ignored
+10.0.0.5
+S907083X6310614
+2c:a5:39:00:14:01
+some-device-name</code></pre>
+<p>Any of four things identifies a device: a <strong>management address</strong>, a <strong>serial number</strong>, a <strong>chassis MAC</strong> or the <strong>name it announces</strong>. They can be mixed in one file, and two lines naming the same device mark it once.</p>
+<p>A line that matches nothing in the map is <strong>reported back, never guessed at</strong>:</p>
+<pre><code>marked 4 device(s) in bench 7 (from the newest map kept)
+   server-a
+   radio-1
+not recognised in that map, so not marked:
+   10.9.9.9</code></pre>
+<p>With no <code>--map</code> it works on the newest map the tool kept, so there is nothing to find on disk. <code>--mark-setup ""</code> takes the listed devices out of every setup.</p>
+<p>On the map the same thing is <strong>Mark a whole bench</strong>: paste the list, name the setup, apply.</p>
+<p>The marks are remembered by serial, MAC and address, so they survive the next scan - including a device that changed address.</p>
+<h2 id="6l-one-bench-both-ways">6l. One bench, both ways<a class="anchor" href="#6l-one-bench-both-ways" aria-label="link to this section">#</a></h2>
+<p>The ordinary NetBox comparison runs outwards from the scan, so it can only report on devices that answered. The question it cannot answer is the one people actually ask: <em>the inventory says this bench has ten devices - does it?</em></p>
+<pre><code>linkfinder --setup-diff bench-a --setup-diff-csv bench-a.csv</code></pre>
+<pre><code>bench-a: 2 in both, 8 only in netbox, 3 only here, 1 to confirm
+  IN BOTH         5G AMD SERVER (Multi)      server-a        the serial number
+  IN BOTH         MM-0-n78LC-00              Integrity-MM..  one name ends with the other
+  ONLY IN NETBOX  Vaunix attenuator                          nothing answering to this was found
+  ONLY HERE                                  radio-4         not recorded under this setup</code></pre>
+<p>Three verdicts, and the useful ones are the last two. A bench of three devices gives a dozen rows, not a page of search results.</p>
+<p>How a record and a device are paired, strongest first:</p>
+<table><thead><tr><th>Signal</th><th>Settles it?</th></tr></thead><tbody><tr><td>the serial numbers are equal</td><td>yes</td></tr><tr><td>the serial appears inside the other's name</td><td>yes</td></tr><tr><td>the names are equal</td><td>only with something else agreeing</td></tr><tr><td>an address is held by both</td><td>only with something else agreeing</td></tr><tr><td>one name ends with the other (<code>MM-0-n78LC-00</code> inside <code>Integrity-MM-0-n78LC-00</code>)</td><td>no - marked <strong>needs a look</strong></td></tr></tbody></table>
+<p>Strong evidence is always matched first, so a name that merely rhymes can never take a device away from the record whose serial proves it.</p>
+<p><code>--setup-diff</code> is repeatable, and <code>--setup-diff-csv</code> writes every bench asked about into one spreadsheet. Excel opens it directly.</p>
+<p>On the map it is <strong>Compare a bench with NetBox</strong>.</p>
+<h2 id="6h-which-switch-port-is-which-against-netbox">6h. Which switch port is which, against NetBox<a class="anchor" href="#6h-which-switch-port-is-which-against-netbox" aria-label="link to this section">#</a></h2>
+<p>LLDP says <code>1/1/49</code>. NetBox says <code>Port49</code>. They are the same hole in the same box, but nothing in either name proves it, and guessing is how somebody ends up unplugging the wrong cable.</p>
+<p>So the tool proposes and shows its working, and <strong>nothing uses the proposal until a person has confirmed it</strong>:</p>
+<pre><code>linkfinder &lt;hosts&gt; --netbox --switch-ports</code></pre>
+<pre><code>Switch ports, scan against NetBox:
+  rack-sw-7          1/1/12 = port12, 1/1/13 = port13
+      every port the scan saw lands on exactly one record, covers 51 port(s)</code></pre>
+<p>The rule is <strong>per switch</strong>, not per port: one confirmation settles every port on it, which is why being certain costs a single yes rather than fifty-two.</p>
+<pre><code>linkfinder &lt;hosts&gt; --netbox --confirm-switch-ports rack-sw-7
+linkfinder &lt;hosts&gt; --netbox --confirm-switch-ports "*"     # every certain one</code></pre>
+<p>On the map the same thing is a button, <strong>Which switch port is which</strong>, with a Yes beside each switch. Confirmations are kept in the defaults file under <code>switch_ports</code> and apply to every later scan.</p>
+<p>A switch that is not in NetBox under the name it announces is reported as exactly that. It is a finding about the documentation, not a failure.</p>
+<h2 id="6i-what-moved-since-last-time">6i. What moved since last time<a class="anchor" href="#6i-what-moved-since-last-time" aria-label="link to this section">#</a></h2>
+<p>A cable that moved is invisible in any single scan: the map looks perfectly reasonable, it is simply not last week's. Answering that needs an earlier map, so the tool keeps its own.</p>
+<p>Every map it draws is kept under <code>~/.linkfinder-history</code>, newest twenty, and an empty or interrupted map is never kept - it must not become the thing a later scan is judged against.</p>
+<pre><code>linkfinder --topology 10.0.0.1 -u root -p secret --since-last</code></pre>
+<pre><code>Since the last map (1 device added, 1 device changed, 1 link added):
+  device added     rack-sw-9    switch
+  link added       core-sw 21 - rack-sw-9 1/1/35</code></pre>
+<p>Beside the map it is <code>&lt;map&gt;.moved.csv</code>. The first scan says plainly that there is nothing to compare against yet, rather than pretending nothing changed.</p>
+<p>Set <code>LINKFINDER_HISTORY</code> to keep the maps somewhere else.</p>
+<h2 id="6j-the-map-as-a-table">6j. The map as a table<a class="anchor" href="#6j-the-map-as-a-table" aria-label="link to this section">#</a></h2>
+<p>The picture answers "how is this connected". A table answers "how many are there and where", and it is what a spreadsheet, a report or a colleague outside the team can actually use.</p>
+<pre><code>linkfinder --topology 10.0.0.1 -u root -p secret --topology-csv site.csv
+linkfinder &lt;hosts&gt; --csv scan.csv</code></pre>
+<p>One row per link, carrying the device, its serial, the setups it belongs to, the local port, what is on the other end and which port that is. In the window it is the <strong>Export...</strong> button; on the map, <strong>Download this map as a table</strong>.</p>
+<p>You do not have to ask for it. Every walk writes the table, the data and the page side by side under the same name and says where all three went. The page is for looking at; the other two are what the work is actually done with, and needing a dialog to reach them was a step with no purpose. <strong>Save...</strong> still puts a copy wherever you want, and offers the table first for the same reason.</p>
+<h2 id="7-file-formats">7. File formats<a class="anchor" href="#7-file-formats" aria-label="link to this section">#</a></h2>
+<h3 id="topology-json">Topology JSON<a class="anchor" href="#topology-json" aria-label="link to this section">#</a></h3>
+<pre><code>{
+  "schema_version": 1,
+  "generated_at": "2026-10-05T17:11:02",
+  "seed": "10.0.0.1",
+  "seeds": ["10.0.0.1", "10.0.0.2"],
+  "stopped_because": "depth limit reached (2)",
+  "nodes": [
+    {
+      "id": "chassis:aa:bb:cc:dd:ee:01",
+      "kind": "switch",
+      "name": "sw-lab-1",
+      "chassis_id": "aa:bb:cc:dd:ee:01",
+      "chassis_id_raw": "AA-BB-CC-DD-EE-01",
+      "mgmt_ips": ["10.0.0.30"],
+      "vendor": "ExampleNOS 1.2.3",
+      "state": "scanned",
+      "depth": 1,
+      "sources": ["snmp"],
+      "serial": "",
+      "first_seen": "2026-10-05T17:10:11",
+      "last_seen": "2026-10-05T17:10:48",
+      "error": "",
+      "extra": {}
+    }
+  ],
+  "edges": [
+    {
+      "id": "chassis:...|1/1/28::chassis:...|21",
+      "a": "chassis:...", "a_iface": "1/1/28",
+      "b": "chassis:...", "b_iface": "21",
+      "protos": ["LLDP"],
+      "sources": ["switch-cli"],
+      "reported_by": ["chassis:..."],
+      "confidence": "reported",
+      "vlan": "100", "speed": "10000Mb/s",
+      "first_seen": "...", "last_seen": "..."
+    }
+  ]
+}</code></pre>
+<p><code>kind</code> is one of <code>switch</code>, <code>router</code>, <code>host</code>, <code>bmc</code>, <code>ap</code>, <code>phone</code>, <code>unknown</code>. <code>state</code> is one of <code>scanned</code>, <code>unreachable</code>, <code>unscanned</code>, <code>out-of-scope</code>, <code>limit-reached</code>.</p>
+<p><code>schema_version</code> is checked on load; a newer file is refused rather than half-read.</p>
+<h3 id="topology-html">Topology HTML<a class="anchor" href="#topology-html" aria-label="link to this section">#</a></h3>
+<p>One self-contained file. The graph data, the device drawings and <code>cytoscape.min.js</code> are all embedded, because a page opened from disk may not fetch a sibling file and must not need the network.</p>
+<p>Features: zoom, pan, draggable nodes, four layouts, a filter box, line style per link confidence, interface names at each end of every link, and a panel showing every field of whatever you click. If the scan was cut short, the header says so.</p>
+<p>Each node is drawn as the equipment it is - a rack switch with a port grid, a stack of server units, a router, a management board, an access point, a desk phone, or a dashed box with a question mark for an unidentified device. That leaves the border free to carry state alone: black scanned, red unreachable, dashed and faded for anything never opened. Unticking <strong>device icons</strong> reverts to the plain shapes, which redraw faster on a very large map; the data behind both is identical.</p>
+<p>The drawings live in <code>linkfinder/assets/icons/</code>, one SVG per kind, each cropped by its <code>viewBox</code> to its own content and carrying explicit <code>width</code>/<code>height</code>. The size attributes are not decoration - without an intrinsic size the browser reports a zero-sized image and Cytoscape silently drops the icon at any zoom other than 1.</p>
+<p><code>icon_uris()</code> in <code>render_topology.py</code> reads each file, substitutes the kind colour for the <code>__ACCENT__</code> placeholder and base64-encodes the result into a data URI. Base64 rather than inline markup keeps the SVG namespace URL out of the page, so the "nothing here touches the network" test stays meaningful. The map is kept to one icon per kind rather than per node, so the cost is about 10 KB however many devices are found.</p>
+<p><code>tools/make_icons.py</code> draws the set. It is the source of truth: edit the geometry there and re-run it rather than hand-editing the SVGs. <code>KIND_SIZE</code> in <code>render_topology.py</code> gives each kind its node box, matched to the aspect of its drawing - a switch is wide and flat because a switch is.</p>
+<h3 id="csv">CSV<a class="anchor" href="#csv" aria-label="link to this section">#</a></h3>
+<p>One row per resolved link: target, kind, local interface, MAC, speed, bond parent, switch, switch IP, switch port, the raw port id, port description, VLAN, chassis id, switch model, protocol, source, confidence, note.</p>
+<hr>
+<h2 id="8-credentials-and-what-touches-the-disk">8. Credentials and what touches the disk<a class="anchor" href="#8-credentials-and-what-touches-the-disk" aria-label="link to this section">#</a></h2>
+<p>The code contains no addresses and no credentials. Everything site-specific is supplied at run time. Three files can hold real values, all outside the repository and all in <code>.gitignore</code>:</p>
+<table><thead><tr><th>File</th><th>Holds</th><th>Written when</th></tr></thead><tbody><tr><td><code>~/.linkfinder.json</code></td><td>your usernames and passwords</td><td>only by you, by hand</td></tr><tr><td><code>~/.linkfinder-switches.json</code></td><td>switch addresses and names</td><td>only with <code>--learn</code></td></tr><tr><td>the same file</td><td>SNMP communities</td><td>only with <code>--learn --remember-credentials</code></td></tr><tr><td>any topology JSON/HTML</td><td>site addresses and device names</td><td>only where you point it</td></tr></tbody></table>
+<p><code>~/.linkfinder.json</code>:</p>
+<pre><code>{
+  "user": "root",
+  "password": "...",
+  "bmc_user": "ADMIN",
+  "bmc_password": "...",
+  "community": "public",
+  "switches": ["10.0.0.1", "10.0.0.2@othercommunity"],
+  "switch_user": "admin",
+  "switch_password": "...",
+  "creds": [
+    {"user": "admin", "password": "..."},
+    {"user": "siteadmin", "password": "..."}
+  ]
+}</code></pre>
+<p><code>LINKFINDER_USER</code>, <code>LINKFINDER_PASSWORD</code>, <code>LINKFINDER_BMC_USER</code>, <code>LINKFINDER_BMC_PASSWORD</code> and <code>LINKFINDER_COMMUNITY</code> are read too. The command line wins over the environment, which wins over the file.</p>
+<p>Nothing is ever sent anywhere. The tool only talks to the targets you name.</p>
+<h3 id="a-remembered-password-is-not-kept-in-the-file">A remembered password is not kept in the file<a class="anchor" href="#a-remembered-password-is-not-kept-in-the-file" aria-label="link to this section">#</a></h3>
+<p>A per-host password the tool saves for you goes to the store the operating system already runs, and the file keeps only a handle to it:</p>
+<table><thead><tr><th>System</th><th>Where the password actually lives</th></tr></thead><tbody><tr><td>Windows</td><td>DPAPI, keyed to your account. Another account cannot read it, and a tampered blob is refused rather than returned as rubbish</td></tr><tr><td>macOS</td><td>the login keychain</td></tr><tr><td>Linux with a session keyring</td><td>the Secret Service, through <code>secret-tool</code></td></tr><tr><td>anything else, a server typically</td><td><strong>nowhere</strong> - it is not saved, and the tool says so</td></tr></tbody></table>
+<p>That last row is deliberate. Encrypting a file with a key that ships beside it is obfuscation: it would read as protection in an audit and stop nobody. Where there is no store, pass the password each run or use an SSH key.</p>
+<p>A file written before this existed still works. The first run moves any plaintext password into the store and takes the clear copy out of the file, and says which hosts it moved.</p>
+<hr>
+<h2 id="9-reading-the-output">9. Reading the output<a class="anchor" href="#9-reading-the-output" aria-label="link to this section">#</a></h2>
+<h3 id="port-lookup">Port lookup<a class="anchor" href="#port-lookup" aria-label="link to this section">#</a></h3>
+<pre><code>TARGET         LOCAL PORT      SWITCH    SWITCH PORT            SWITCH IP     VLAN  VIA                   CONF
+10.0.0.27      oam [mgmt-leg]  sw-edge   sfp-sfpplus3           10.0.9.1      3729  LLDP/toolbox-tcpdump  high
+10.0.0.27      ens3f3np3       sw-lab-1  10GigabitEthernet 1/1  10.0.0.30     -     LLDP/toolbox-tcpdump  high
+10.0.0.27      ens3f0np0       -         -                      -             -     -                     none</code></pre>
+<ul><li>The interface carrying the address you asked about is marked <code>[mgmt]</code> or <code>[mgmt-leg]</code> and sorted first. <strong>It always appears</strong>, even when nothing was heard on it, with a note explaining why.</li><li><code>SWITCH PORT</code> prefers a readable name. Some switches send a bare index as the Port ID and the real interface name only in the description; the raw id is kept in the CSV and JSON.</li><li><code>SWITCH IP</code> comes from the LLDP Management Address TLV. Not every switch sends one; some send only a MAC, and then the note says so rather than putting a MAC in an IP column.</li><li><code>VIA</code> names the protocol and the method, so every row can be traced back to how it was obtained.</li><li><code>CONF</code> is <code>low</code> when the answer came from a forwarding table on a port carrying many MACs - that is an uplink and the device is further downstream.</li></ul>
+<h3 id="topology-x">Topology<a class="anchor" href="#topology-x" aria-label="link to this section">#</a></h3>
+<pre><code>DEPTH  DEVICE       KIND    STATE         MANAGEMENT IP  CHASSIS
+0      delta        host    scanned       10.0.0.27      -
+1      sw-lab-1     switch  scanned       10.0.0.30      aa:bb:cc:dd:ee:01
+1      sw-edge      switch  out-of-scope  10.9.94.1      aa:bb:cc:dd:ee:02
+2      sw-access-1  switch  unscanned     -              aa:bb:cc:dd:ee:03</code></pre>
+<p>Followed by a one-line summary and, when the walk was cut short, the reason.</p>
+<hr>
+<h2 id="10-troubleshooting">10. Troubleshooting<a class="anchor" href="#10-troubleshooting" aria-label="link to this section">#</a></h2>
+<p><strong>"nothing to talk to on X"</strong> - no SSH on 22, no HTTPS on 443 and no <code>--switch</code> given. If the device is a dumb appliance, give the switch it hangs off with <code>--switch</code>.</p>
+<p><strong>"SSH did not get us in: the device dropped the session..."</strong> - typically a switch that allows two or three auth attempts. Supply the right user with <code>-u</code>; with a password set, the tool no longer wastes attempts on agent keys.</p>
+<p><strong>"captured N frames but none were LLDP or CDP"</strong> - the port is carrying something else. Most often the switch has discovery disabled on that port; ask the switch side instead.</p>
+<p><strong>"no LLDP on this port, and its MAC is not in the forwarding table of ..."</strong> - the interface faces a different switch from the ones asked. Add that switch with <code>--switch</code>. If the port is a fronthaul leg there may be no switch at all; check the PTP and Peer columns, which answer that case without LLDP.</p>
+<p><strong>A neighbour shows an address like <code>fe80::7a9a:18ff:fe19:1234</code> and is never scanned</strong></p>
+<ul><li>that is an IPv6 link-local, the only address that device publishes over LLDP. It is</li></ul>
+<p>valid but not routable: without a zone index there is nowhere to connect to, so the crawl does not waste an attempt on it and the row says so instead of reporting the device as unreachable. Give the device's real address as a seed, or scan it directly.</p>
+<p><strong>Port health prints "no switch to ask"</strong> - nothing found during the scan published a usable management address. Name the switch with <code>--switch</code>.</p>
+<p><strong>A BMC answers in the browser but the tool says authentication failed</strong> - it was taken down the SSH path. Current builds probe <code>/redfish/v1</code> first; if you force <code>-m ssh</code> on a BMC this is expected.</p>
+<p><strong>"this BMC exposes no LLDP over Redfish"</strong> - some generations simply do not publish it even with the right licence. The MAC addresses it does publish are collected, so give <code>--switch</code> and the port is found from the switch side.</p>
+<p><strong>The topology stops at depth 1 with everything <code>unscanned</code></strong> - the neighbours published no management address. Check the summary line: it says why the walk stopped. Seed from a device whose neighbours do advertise addresses, or scan them separately and merge.</p>
+<p><strong>The graph looks small when the page opens</strong> - press <strong>fit</strong>.</p>
+<p><strong>Windows: a console window flashes</strong> - should not happen any more; every child process is started without one. If you see it, say which action caused it.</p>
+<hr>
+<h2 id="11-extending-it">11. Extending it<a class="anchor" href="#11-extending-it" aria-label="link to this section">#</a></h2>
+<p>The layers are deliberately separate:</p>
+<pre><code>probes (per access path)  -&gt;  neighbors.py (one uniform answer)
+                          -&gt;  crawl.py (recursion and limits)
+                          -&gt;  topology.py (graph, identity, merging)
+                          -&gt;  JSON
+                          -&gt;  render_topology.py (HTML)</code></pre>
+<p><strong>A new switch dialect</strong>: add one <code>Dialect(...)</code> entry in <code>linkfinder/probe_switchcli.py</code> with its detection words, its neighbour commands, its MAC-table command and which of the three parsers to use. Add one sample of real output to <code>tests/test_switchcli.py</code>.</p>
+<p><strong>A new access path</strong>: write a probe that fills a <code>TargetResult</code> the same way the others do - <code>local_iface</code> is a port on the device we interrogated, and the <code>switch</code>/<code>port</code>/ <code>chassis_id</code>/<code>mgmt_ip</code> fields describe the far end. Everything above it then works.</p>
+<p><strong>A different picture</strong>: the renderer only reads the JSON. Write another one; nothing in the discovery layers needs to know.</p>
+<p><strong>A new device kind</strong>: add it to <code>KIND_STYLE</code> and <code>KIND_SIZE</code> in <code>render_topology.py</code>, draw it in <code>tools/make_icons.py</code> and re-run that script. The renderer picks the icon up by name; an unrecognised kind falls back to the unknown drawing rather than vanishing.</p>
+<p><strong>A new field in the graph</strong>: add it to <code>Node</code>/<code>Edge</code> in <code>topology.py</code>, to <code>to_dict</code>, and give it a merge rule. The rule matters more than the field.</p>
+<hr>
+<h2 id="12-tests-and-building">12. Tests and building<a class="anchor" href="#12-tests-and-building" aria-label="link to this section">#</a></h2>
+<p>Every test runs offline against synthetic frames, recorded command output and a fake SNMP agent on loopback. No lab is needed.</p>
+<pre><code>python tests/test_decode.py      # LLDP/CDP frames, pcap and pcapng
+python tests/test_snmp.py        # the SNMPv2c codec, against a fake agent
+python tests/test_parsers.py     # every text and JSON source we read
+python tests/test_store.py       # the remembered-switch file
+python tests/test_switchcli.py   # one sample of real output per NOS
+python tests/test_topology.py    # identity, merging, edge confidence
+python tests/test_crawl.py       # loops, depth, limits, scope, failures, resume
+python tests/test_render.py      # the offline HTML page</code></pre>
+<p>Build both executables, tests first:</p>
+<pre><code>.\build.ps1</code></pre>
+<p>The two names must differ in more than case - Windows treats <code>linkfinder.exe</code> and <code>LinkFinder.exe</code> as the same file. A running <code>LinkFinder-GUI.exe</code> has to be closed before PyInstaller can replace it. <code>linkfinder/assets/</code> is bundled with <code>--add-data</code>, which is what lets the frozen exe render a topology page.</p>
+<hr>
+<h2 id="credits">Credits<a class="anchor" href="#credits" aria-label="link to this section">#</a></h2>
+<p>The idea, the design and the architecture are <strong>Stas Mitin's</strong>, and so is the code.</p>
+<p>Released under the MIT licence (see <code>LICENSE</code>): use it, change it and redistribute it freely, as long as the copyright notice stays with it.</p>
+<p>It ships one third-party component: <code>cytoscape.min.js</code> 3.30.2 by The Cytoscape Consortium, under the MIT licence, vendored in <code>linkfinder/assets/</code> with its licence text so the generated topology page works with no network access.</p>
+<p>The device icons are deliberately not third-party. They are drawn by <code>tools/make_icons.py</code> and covered by the same MIT licence as the rest, so no vendor stencil set has to be redistributed with the tool.</p>
+<h2 id="every-option">Every command-line option</h2>
+<p>Read from the program itself when this page was built, so it lists exactly what this version accepts.</p>
+<h3 id="opt-positional-arguments">positional arguments</h3>
+<table><thead><tr><th>option</th><th>takes</th><th>what it does</th></tr></thead><tbody>
+<tr><td><code>targets</code></td><td></td><td>host IPs or names (space or comma separated)</td></tr>
+</tbody></table>
+<h3 id="opt-optional-arguments">optional arguments</h3>
+<table><thead><tr><th>option</th><th>takes</th><th>what it does</th></tr></thead><tbody>
+<tr><td><code>-h, --help</code></td><td></td><td>show this help message and exit</td></tr>
+<tr><td><code>--targets-file</code></td><td>TARGETS_FILE</td><td>file with one target per line</td></tr>
+<tr><td><code>-m, --mode</code></td><td>MODE</td><td>force an access path instead of auto-detecting it</td></tr>
+<tr><td><code>-u, --user</code></td><td>USER</td><td>SSH username</td></tr>
+<tr><td><code>-p, --password</code></td><td>PASSWORD</td><td>SSH password (also used for sudo)</td></tr>
+<tr><td><code>--sudo-password</code></td><td>SUDO_PASSWORD</td><td>sudo password if it differs</td></tr>
+<tr><td><code>-i, --key</code></td><td>KEY</td><td>SSH private key file</td></tr>
+<tr><td><code>--ssh-port</code></td><td>SSH_PORT</td><td>SSH port to use when a host does not name its own (default 22). Per-host ports live in the defaults file, so one appliance on 2222 does not move the rest</td></tr>
+<tr><td><code>--bmc-user</code></td><td>BMC_USER</td><td>BMC/Redfish user (defaults to --user)</td></tr>
+<tr><td><code>--bmc-password</code></td><td>BMC_PASSWORD</td><td>BMC/Redfish password</td></tr>
+<tr><td><code>--bmc-port</code></td><td>BMC_PORT</td><td></td></tr>
+<tr><td><code>--no-enable-lldp</code></td><td></td><td>never PATCH the BMC to switch its LLDP receiver on</td></tr>
+<tr><td><code>--iface</code></td><td>IFACE</td><td>limit to these interfaces (repeatable); bonds expand to their slaves</td></tr>
+<tr><td><code>--no-ptp</code></td><td></td><td>skip the PTP read; by default the timing role of each port is reported, and PTP is used to name the far end of a cable that carries no LLDP</td></tr>
+<tr><td><code>--no-identify</code></td><td></td><td>do not ask an unknown device what it is. The probe opens a TCP connection to it and reads the version string it offers; it never logs in and never writes, but it is the only thing here that touches a device nobody gave us credentials for</td></tr>
+<tr><td><code>--no-neighbour-probe</code></td><td></td><td>never send anything: skip the one IPv6 query that finds a cable between two hosts when no protocol will say so</td></tr>
+<tr><td><code>--netbox</code></td><td></td><td>look the scanned devices up in NetBox: their setups come from the tags you name, and anything the two disagree about is reported. Read-only - it never writes</td></tr>
+<tr><td><code>--netbox-url</code></td><td>NETBOX_URL</td><td>NetBox address (or LINKFINDER_NETBOX_URL, or the defaults file)</td></tr>
+<tr><td><code>--netbox-token</code></td><td>NETBOX_TOKEN</td><td>NetBox API token (or LINKFINDER_NETBOX_TOKEN). On NetBox 4.5 that is nbt_&lt;key&gt;.&lt;secret&gt; - the secret half alone is refused as an invalid token</td></tr>
+<tr><td><code>--netbox-insecure</code></td><td></td><td>do not verify the NetBox TLS certificate, for an internal CA</td></tr>
+<tr><td><code>--setup-tag</code></td><td>TAG</td><td>a NetBox tag that names a Setup, repeatable. Nothing is a Setup unless it is named here: this estate has 985 tags and most are teams and programmes, not benches. --netbox-tags lists the ones your scan saw</td></tr>
+<tr><td><code>--netbox-tags</code></td><td></td><td>list the NetBox tags carried by the devices this scan matched, so you can pick which of them are Setups</td></tr>
+<tr><td><code>--switch-ports</code></td><td></td><td>show how each switch's port names line up with NetBox, with the evidence. Nothing is assumed until you confirm it</td></tr>
+<tr><td><code>--confirm-switch-ports</code></td><td>SWITCH</td><td>accept the proposed rule for this switch ('*' for every certain one). One yes covers all its ports</td></tr>
+<tr><td><code>--netbox-proposals</code></td><td>FILE</td><td>write the corrections a person could apply to NetBox. Nothing is sent; only where a device is and whether it is alive is ever proposed, never what it is</td></tr>
+<tr><td><code>--adb</code></td><td></td><td>name the handsets plugged into a host by asking adb on it. USB devices are always read - that is free and changes nothing - but adb may start its own server on the host, so asking it is a choice you make</td></tr>
+<tr><td><code>--read-serial</code></td><td></td><td>ask each serial port that looks like a radio console who it is: open it, log in with the console logins the build carries if it asks, and read the radio's name off its shell. On by default; a port that answers is drawn as a radio cabled to the host. A rack server is skipped (a radio console cable lives on a bench NUC/desktop, not a server)</td></tr>
+<tr><td><code>--no-read-serial</code></td><td></td><td>do not touch the serial ports at all - only list which ports exist, never open one</td></tr>
+<tr><td><code>--serial-baud</code></td><td>BAUD</td><td>the rate the serial console probe talks at (default 115200)</td></tr>
+<tr><td><code>--mgmt-only</code></td><td></td><td>only the interface carrying the target IP (old LLDP_Checker behaviour)</td></tr>
+<tr><td><code>-t, --seconds</code></td><td>SECONDS</td><td>capture window when a capture is needed (default 90: one CDP cycle of 60s plus margin; LLDP ticks every 30s). Lower for a quicker scan, higher to be sure of a slow advertiser</td></tr>
+<tr><td><code>--switch</code></td><td>SWITCH</td><td>switch to ask over SNMP, repeatable; use ip@community to override</td></tr>
+<tr><td><code>--community</code></td><td>COMMUNITY</td><td>SNMP v2c community (default public)</td></tr>
+<tr><td><code>--switch-user</code></td><td>SWITCH_USER</td><td>switch SSH user, for the CLI fallback</td></tr>
+<tr><td><code>--switch-password</code></td><td>SWITCH_PASSWORD</td><td>switch SSH password</td></tr>
+<tr><td><code>--mac</code></td><td>MAC</td><td>MAC to look for switch-side instead of resolving it</td></tr>
+<tr><td><code>-j, --workers</code></td><td>WORKERS</td><td>parallel targets (default 8)</td></tr>
+<tr><td><code>--json</code></td><td></td><td>emit JSON</td></tr>
+<tr><td><code>--csv</code></td><td>FILE</td><td>write a CSV inventory ('-' for stdout)</td></tr>
+<tr><td><code>-w, --wide</code></td><td></td><td>show every column</td></tr>
+<tr><td><code>-q, --quiet</code></td><td></td><td>results only, no progress log</td></tr>
+<tr><td><code>--gui</code></td><td></td><td>open the window instead</td></tr>
+<tr><td><code>--shared</code></td><td>FOLDER</td><td>keep setups and the maps it remembers in a folder the team can reach, instead of this machine only. Set it once in the defaults file under 'shared'</td></tr>
+<tr><td><code>--netbox-find</code></td><td>SERIAL-OR-TAG</td><td>look one thing up in NetBox: a serial, a tag, a name or an asset tag. It works out which and says how it matched. Repeatable</td></tr>
+<tr><td><code>--from-netbox</code></td><td>SERIAL-OR-TAG</td><td>take the addresses NetBox holds for that serial or tag and scan them. You have a bench name, not a list of addresses - this is what removes the typing</td></tr>
+<tr><td><code>--where</code></td><td></td><td>say where everything this tool remembers is kept</td></tr>
+<tr><td><code>--help-page</code></td><td>FILE</td><td>open the full help in your browser, or write it to FILE. It is one self-contained page and needs no network</td></tr>
+<tr><td><code>-V, --version</code></td><td></td><td>show program's version number and exit</td></tr>
+<tr><td><code>--list-switches</code></td><td></td><td>print the switches the tool has remembered, then exit</td></tr>
+<tr><td><code>--forget-switches</code></td><td>IP</td><td>forget one remembered switch, or all of them when given no value</td></tr>
+<tr><td><code>--forget-logins</code></td><td></td><td>remove the saved per-host logins and extra credentials from the defaults file, then exit</td></tr>
+<tr><td><code>--learn</code></td><td></td><td>remember the switches found (addresses only) in ~/.linkfinder-switches.json and reuse them next time; off by default</td></tr>
+<tr><td><code>--cred</code></td><td>USER:PASSWORD</td><td>an extra credential set to try when the first is rejected, repeatable</td></tr>
+<tr><td><code>--remember-credentials</code></td><td></td><td>with --learn, also store the SNMP community that worked; off by default</td></tr>
+</tbody></table>
+<h3 id="opt-port-status-and-health-opt-in">port status and health (opt-in)</h3>
+<table><thead><tr><th>option</th><th>takes</th><th>what it does</th></tr></thead><tbody>
+<tr><td><code>--port-health</code></td><td></td><td>additionally read the switch port table over SNMP and judge each port; off by default, and nothing extra is read without it</td></tr>
+<tr><td><code>--port-health-interval</code></td><td>SECONDS</td><td>gap between the two counter reads used to tell a growing error from an old one (default 3)</td></tr>
+<tr><td><code>--expect-speed</code></td><td>MBPS</td><td>flag a port as degraded when it negotiates below this</td></tr>
+<tr><td><code>--all-interfaces</code></td><td></td><td>include logical interfaces, not just physical ports</td></tr>
+</tbody></table>
+<h3 id="opt-topology-discovery">topology discovery</h3>
+<table><thead><tr><th>option</th><th>takes</th><th>what it does</th></tr></thead><tbody>
+<tr><td><code>--topology</code></td><td>SEED</td><td>discover the topology recursively starting from this device; several seeds may be given, comma separated</td></tr>
+<tr><td><code>--max-depth</code></td><td>MAX_DEPTH</td><td>seed is depth 0; devices at this depth are still probed but their neighbours are not queued. Default 0: scan only the hosts you name and draw their neighbours from what those hosts report, without scanning the neighbours. Raise it to walk outward and discover more</td></tr>
+<tr><td><code>--max-devices</code></td><td>MAX_DEVICES</td><td>stop after probing this many devices (default 25)</td></tr>
+<tr><td><code>--scope</code></td><td>CIDR</td><td>only connect to devices inside these networks, repeatable; neighbours outside are still drawn, just not scanned</td></tr>
+<tr><td><code>--auto-discover</code></td><td></td><td>keep descending without asking (confirm mode is the default)</td></tr>
+<tr><td><code>--topology-json</code></td><td>FILE</td><td>write the topology JSON here</td></tr>
+<tr><td><code>--topology-html</code></td><td>FILE</td><td>write a self-contained Cytoscape page here</td></tr>
+<tr><td><code>--since-last</code></td><td></td><td>say what moved since the previous map this tool drew - a cable that moved is invisible in any single scan</td></tr>
+<tr><td><code>--topology-csv</code></td><td>FILE</td><td>write the map as one row per link, for a spreadsheet ('-' for stdout)</td></tr>
+<tr><td><code>--mark-setup</code></td><td>NAME</td><td>put a whole list of devices in one setup at once. Use an empty name to take them out</td></tr>
+<tr><td><code>--mark-list</code></td><td>FILE</td><td>the devices to mark. Either the sheet from --setup-sheet, where each row carries its own setup, or a plain list of addresses, serials, MACs or names ('-' reads it from stdin)</td></tr>
+<tr><td><code>--setup-sheet</code></td><td>FILE</td><td>write every device in the map as a spreadsheet with its setup ready to be typed. Edit it and hand it back with --mark-list</td></tr>
+<tr><td><code>--setup-diff</code></td><td>SETUP</td><td>one bench, both ways: what NetBox records against what is actually there. Repeatable. The NetBox tag is assumed to be the same word; write 'my bench=their-tag' when it is not</td></tr>
+<tr><td><code>--suspicious</code></td><td></td><td>what does not add up on this map: one address with two owners, one MAC in two places, a ring in the cabling, a cable whose ends disagree</td></tr>
+<tr><td><code>--out-of-reach</code></td><td>ROLE</td><td>a NetBox role this tool has no way into - an attenuator, a chamber. Those stop being reported as missing. '*' accepts every class suggested; '-CPE' takes one back</td></tr>
+<tr><td><code>--setup-diff-csv</code></td><td>FILE</td><td>write that comparison as a spreadsheet ('-' for stdout)</td></tr>
+<tr><td><code>--map</code></td><td>FILE</td><td>the map these act on; the newest one this tool kept is used when this is left out</td></tr>
+<tr><td><code>--serve-map</code></td><td>FILE</td><td>open a saved map in your browser with this process answering it, so setups typed on the picture are written straight away. Loopback only</td></tr>
+<tr><td><code>--render-topology</code></td><td>JSON HTML</td><td>only render: turn an existing topology JSON into HTML</td></tr>
+<tr><td><code>--compare-scan</code></td><td>SCAN MAP</td><td>check a saved scan (--json) against a topology JSON: every link the scan resolved must be on the map. Exits 3 if any is missing</td></tr>
+<tr><td><code>--watch</code></td><td>TOPOLOGY_JSON</td><td>fold a topology JSON into the record of how things stood last time and print only what changed. Exits 4 if anything went down or out of sight</td></tr>
+<tr><td><code>--watch-state</code></td><td>FILE</td><td>where that record lives (default: beside your other local state)</td></tr>
+<tr><td><code>--loop-check</code></td><td></td><td>sample each switch twice to see whether spanning tree is churning right now; off by default because it reads the forwarding table twice</td></tr>
+<tr><td><code>--diff</code></td><td>BEFORE AFTER</td><td>compare two topology JSON files and report what moved</td></tr>
+<tr><td><code>--merge-topology</code></td><td>JSON</td><td>combine several topology files into one site map</td></tr>
+<tr><td><code>--topology-resume</code></td><td>JSON</td><td>carry an earlier scan forward and only fill in the gaps</td></tr>
+<tr><td><code>--topology-workers</code></td><td>TOPOLOGY_WORKERS</td><td>devices interrogated in parallel per level (default 4)</td></tr>
+</tbody></table>
+<p class="stamp">Built from DOCUMENTATION.md and the program's own options on
+19 Oct 2026. This page carries no address and fetches nothing - it opens from a disk
+with the network off.<br>Idea, design and architecture by Stas Mitin.</p>
+</div></main></div>
+<button id="up" type="button">&uarr; Top</button>
+<script>
+(function () {
+  var side = document.getElementById('contents');
+  var links = [].slice.call(side.querySelectorAll('a[href^="#"]'));
+  var find = document.getElementById('find');
+  var up = document.getElementById('up');
+
+  find.addEventListener('input', function () {
+    var want = find.value.toLowerCase().trim();
+    var shown = 0;
+    links.forEach(function (a) {
+      var hit = !want || a.textContent.toLowerCase().indexOf(want) >= 0;
+      a.style.display = hit ? '' : 'none';
+      if (hit) { shown++; }
+    });
+    document.getElementById('nohit').style.display = shown ? 'none' : 'block';
+  });
+
+  var marks = links.map(function (a) {
+    return document.getElementById(a.getAttribute('href').slice(1));
+  }).filter(Boolean);
+
+  function here() {
+    var best = 0;
+    for (var i = 0; i < marks.length; i++) {
+      if (marks[i].getBoundingClientRect().top <= 90) { best = i; }
+    }
+    links.forEach(function (a, i) { a.className =
+      a.className.replace(/ ?here/, '') + (i === best ? ' here' : ''); });
+    if (links[best] && links[best].offsetTop < side.scrollTop) {
+      side.scrollTop = links[best].offsetTop - 60;
+    }
+    up.className = window.scrollY > 500 ? 'on' : '';
+  }
+  var waiting = false;
+  window.addEventListener('scroll', function () {
+    if (waiting) { return; }
+    waiting = true;
+    window.requestAnimationFrame(function () { here(); waiting = false; });
+  });
+  up.addEventListener('click', function () {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+  here();
+})();
+</script>
+</body></html>

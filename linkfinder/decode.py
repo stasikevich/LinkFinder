@@ -53,6 +53,22 @@ def _text(raw: bytes) -> str:
     return raw.decode("utf-8", "replace").strip("\x00").strip()
 
 
+def reachable_address(text: str) -> str:
+    """A management address somebody else can use, or nothing.
+
+    Devices announce whatever is configured, and plenty announce the
+    loopback. Taken at face value that became a switch to interrogate, so
+    the tool went and read SNMP from its own machine and reported "did not
+    answer" about a switch that was never there.
+    """
+    said = str(text or "").strip()
+    if not said or said in ("0.0.0.0", "::", "::1"):
+        return ""
+    if said.startswith("127.") or said.lower().startswith("fe80:"):
+        return ""
+    return said
+
+
 def _ipv4(raw: bytes) -> str:
     return ".".join(str(b) for b in raw)
 
@@ -162,9 +178,9 @@ def decode_lldp(payload: bytes, vlan: Optional[int] = None) -> Optional[Neighbor
             if alen and len(val) >= 1 + alen:
                 sub, addr = val[1], val[2:1 + alen]
                 if sub == 1 and len(addr) == 4:
-                    nb.mgmt_ip = _ipv4(addr)
+                    nb.mgmt_ip = reachable_address(_ipv4(addr)) or nb.mgmt_ip
                 elif sub == 2 and len(addr) == 16 and not nb.mgmt_ip:
-                    nb.mgmt_ip = _ipv6(addr)
+                    nb.mgmt_ip = reachable_address(_ipv6(addr)) or nb.mgmt_ip
         elif ttype == TLV_ORG and len(val) >= 4:
             _decode_org_tlv(nb, val)
     if not seen:
@@ -222,7 +238,8 @@ def decode_cdp(payload: bytes) -> Optional[Neighbor]:
         elif ttype == CDP_NATIVE_VLAN and len(val) >= 2:
             nb.vlan = str(struct.unpack("!H", val[:2])[0])
         elif ttype == CDP_ADDRESSES and len(val) >= 4:
-            addrs = _cdp_addresses(val)
+            addrs = [a for a in (_cdp_addresses(val) or [])
+                     if reachable_address(a)]
             if addrs:
                 nb.mgmt_ip = addrs[0]
     if not seen:

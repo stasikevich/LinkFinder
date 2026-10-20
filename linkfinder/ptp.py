@@ -93,7 +93,7 @@ def describe_clock_class(value):
 
 
 def normalise_mac(text: str) -> str:
-    """00-05-80-08-35-5B, 0005.8008.355b and 00:05:80:08:35:5b are one address."""
+    """02-55-66-00-00-01, 0255.6600.0001 and 02:55:66:00:00:01 are one address."""
     digits = re.sub(r"[^0-9a-fA-F]", "", text or "").lower()
     if len(digits) != 12:
         return ""
@@ -129,6 +129,7 @@ class PtpPort:
     """PTP as seen from one local interface."""
 
     iface: str = ""
+    pid: str = ""
     phc: str = ""
     role: str = ""              # master | slave | "" when no daemon claims it
     domain: int = -1
@@ -380,7 +381,9 @@ def parse_ptp4l_processes(text: str) -> List[PtpPort]:
         if not iface:
             continue
         domain = _flag(words, ("-d", "--domain"))
-        port = PtpPort(iface=iface, uds=_flag(words, ("--uds_address",)))
+        said = words[0] if words and words[0].isdigit() else ""
+        port = PtpPort(iface=iface, pid=said,
+                       uds=_flag(words, ("--uds_address",)))
         port.domain = int(domain) if domain.isdigit() else 0
         if "-2" in words:
             port.transport = "L2"
@@ -500,18 +503,47 @@ def apply_pmc(port: PtpPort, port_data: str, time_status: str) -> PtpPort:
 LOCAL_DATASETS = ("PORT_DATA_SET", "CURRENT_DATA_SET", "PARENT_DATA_SET",
                   "TIME_PROPERTIES_DATA_SET", "TIME_STATUS_NP")
 
-PS_COMMAND = "ps -eo args 2>/dev/null | grep '[p]tp4l'"
+PS_COMMAND = "ps -eo pid,args 2>/dev/null | grep '[p]tp4l'"
 PHC_COMMAND = (
     "for i in /sys/class/net/*/; do n=$(basename $i); [ -e $i/device ] || continue; "
     "p=$(ls $i/device/ptp 2>/dev/null | head -1); "
     "[ -n \"$p\" ] && echo \"$n $p\"; done")
 
 
-def _pmc_command(port: PtpPort, message: str) -> str:
+def _pmc_command(port: PtpPort, message: str, inside: bool = False) -> str:
+    """Ask one daemon for one data set, from the host or from inside it.
+
+    A host that runs ptp4l in a container often has neither pmc nor the
+    daemon's socket in its own namespaces, and the plain call then returns
+    nothing at all rather than failing. Entering the daemon's own mount and
+    network namespaces finds both, and costs nothing when it is not needed.
+    """
     base = "pmc -u -b 0 -d %d" % max(port.domain, 0)
     if port.uds:
         base += " -s %s" % shlex.quote(port.uds)
-    return "timeout 6 %s %s 2>/dev/null" % (base, shlex.quote("GET " + message))
+    ask = shlex.quote("GET " + message)
+    if inside and port.pid:
+        return ("timeout 10 nsenter -t %s -m -n -- %s %s 2>/dev/null"
+                % (port.pid, base, ask))
+    return "timeout 6 %s %s 2>/dev/null" % (base, ask)
+
+
+ANSWERED = "RESPONSE MANAGEMENT"
+
+
+def ask_datasets(run: Callable[[str], str], port: PtpPort) -> Dict[str, str]:
+    """Every data set, trying the host first and the daemon's namespace next."""
+    first = LOCAL_DATASETS[0]
+    answers = {first: run(_pmc_command(port, first))}
+    if ANSWERED not in (answers[first] or "") and port.pid:
+        answers = {first: run(_pmc_command(port, first, inside=True))}
+        if ANSWERED in (answers[first] or ""):
+            answers.update({name: run(_pmc_command(port, name, inside=True))
+                            for name in LOCAL_DATASETS[1:]})
+            return answers
+    answers.update({name: run(_pmc_command(port, name))
+                    for name in LOCAL_DATASETS[1:]})
+    return answers
 
 
 def parse_phc_map(text: str) -> Dict[str, str]:
@@ -546,8 +578,7 @@ def collect_ptp(run: Callable[[str], str], ifaces: Optional[List[str]] = None,
             continue
         port.phc = phc.get(port.iface, "")
         try:
-            apply_datasets(port, {name: run(_pmc_command(port, name))
-                                  for name in LOCAL_DATASETS})
+            apply_datasets(port, ask_datasets(run, port))
         except Exception as exc:
             port.error = "pmc failed: %s" % exc
         ports[port.iface] = port
@@ -619,7 +650,7 @@ def known_port_index(results) -> Dict[str, Tuple[str, str]]:
 
 
 def _own_clock(port: Dict[str, Any]) -> str:
-    """portIdentity is "507c6f.fffe.851098-1"; the clock is everything before the dash."""
+    """portIdentity is "021122.fffe.000098-1"; the clock is everything before the dash."""
     return (port.get("port_identity") or "").split("-")[0].strip().lower()
 
 
@@ -670,6 +701,12 @@ def name_peers(results) -> None:
     for nb, port in ports:
         labels, best = [], ""
         placed: List[List[str]] = []
+        # The arithmetic cuts both ways. One clock audible from two of our
+        # ports rules out a cable on at least one of them; one port hearing
+        # two clocks rules out a cable on that port, whatever the far ends
+        # think. A splitter or a hub looks exactly like this.
+        alone = len({(raw.get("clock_identity") or raw.get("mac") or "").lower()
+                     for raw in port.get("peers") or []}) == 1
         for raw in port.get("peers") or []:
             peer = PtpPeer(mac=raw.get("mac", ""),
                            clock_identity=raw.get("clock_identity", ""),
@@ -691,7 +728,7 @@ def name_peers(results) -> None:
                     normalise_mac(clock_identity_to_mac(peer.clock_identity)))
                 if seat and seat[1]:
                     placed.append([seat[0], seat[1]])
-            if name != peer.label and listeners == 1 and mutual:
+            if name != peer.label and listeners == 1 and mutual and alone:
                 labels.append(name)
                 best = best or "direct"
             elif name != peer.label:

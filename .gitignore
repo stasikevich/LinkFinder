@@ -17,3 +17,10 @@ linkfinder.json
 # the documentation screenshots are synthetic and belong in the repo
 !docs/img/*.png
 *.stackdump
+
+# an internal build's logo and strings - company property, never published
+branding/
+
+# the vendor table is built, not kept: tools/make_oui.py writes it from the
+# IEEE registry, so this repository redistributes none of it
+linkfinder/assets/oui.gz

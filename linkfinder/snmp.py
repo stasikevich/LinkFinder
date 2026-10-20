@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import os
 import socket
-import struct
 from typing import Dict, Iterator, List, Optional, Tuple
 
 TAG_INT, TAG_OCTETS, TAG_NULL, TAG_OID, TAG_SEQ = 0x02, 0x04, 0x05, 0x06, 0x30

@@ -13,8 +13,8 @@ import sys
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
-from . import store
-from .model import Neighbor, ProbeAttempt, TargetResult
+from . import store, vault
+from .model import Neighbor, TargetResult
 from .sshx import Creds, normalise_mac
 
 CONFIG_PATHS = [
@@ -34,7 +34,11 @@ class Options:
     community: str = "public"
     switches: List[str] = field(default_factory=list)
     switch_creds: Creds = field(default_factory=Creds)
-    seconds: int = 65
+    # Long enough for two CDP intervals (60s each) and four LLDP ones
+    # (30s): one interval is a coin toss, and a missed frame costs a
+    # whole rescan. Only captures spend this - a host with lldpctl is
+    # not slowed at all.
+    seconds: int = 90
     ifaces: Optional[List[str]] = None
     mgmt_only: bool = False
     mac: str = ""
@@ -48,6 +52,11 @@ class Options:
     expect_speed: int = 0
     all_interfaces: bool = False
     ptp: bool = True
+    neighbours: bool = True
+    identify: bool = True
+    adb: bool = False
+    read_serial: bool = True
+    serial_baud: int = 115200
     per_host: Dict[str, Creds] = field(default_factory=dict)
 
 
@@ -60,6 +69,137 @@ def load_config() -> Dict[str, object]:
             except (ValueError, OSError):
                 continue
     return {}
+
+
+def config_path() -> str:
+    """Where defaults are written: the file already in use, else the one in $HOME."""
+    for path in CONFIG_PATHS:
+        if os.path.exists(path):
+            return path
+    return CONFIG_PATHS[0]
+
+
+def save_config(updates: Dict[str, object]) -> str:
+    """Merge into the defaults file without disturbing what is already there.
+
+    The file is hand-written by whoever set the tool up, so a key we do not
+    know about must survive being saved over.
+    """
+    path = config_path()
+    data = load_config()
+    data.update(updates)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(data, handle, indent=2, sort_keys=True)
+    return path
+
+
+def per_host_from_config(cfg: Optional[Dict[str, object]] = None) -> Dict[str, Creds]:
+    """Logins remembered per host, if the defaults file carries any.
+
+    A password written before this tool had a secret store is still readable
+    and still works; `plaintext_passwords` finds those rows so they can be
+    sealed and the clear copy removed from disk.
+    """
+    table = (cfg if cfg is not None else load_config()).get("per_host") or {}
+    out: Dict[str, Creds] = {}
+    if not isinstance(table, dict):
+        return out
+    for host, entry in table.items():
+        if isinstance(entry, dict):
+            try:
+                port = int(entry.get("port", 22) or 22)
+            except (TypeError, ValueError):
+                port = 22
+            out[str(host)] = Creds(user=str(entry.get("user", "")),
+                                   password=vault.unprotect(
+                                       str(entry.get("password", ""))),
+                                   key_file=str(entry.get("key_file", "")),
+                                   port=port)
+        elif isinstance(entry, str):
+            user, _sep, password = entry.partition(":")
+            out[str(host)] = Creds(user=user, password=password)
+    return out
+
+
+def per_host_to_config(per_host: Dict[str, Creds],
+                       with_passwords: bool = True,
+                       lost: Optional[List[str]] = None) -> Dict[str, dict]:
+    """The table in the shape the defaults file keeps it.
+
+    `lost` collects the hosts whose password could not be stored, because
+    this machine has no secret store. Dropping it silently is worse than
+    refusing: the row stays, the login stays, and the host quietly falls
+    back to the shared password with nobody told.
+    """
+    out: Dict[str, dict] = {}
+    for host, creds in (per_host or {}).items():
+        port = int(getattr(creds, "port", 22) or 22)
+        # A row that says nothing but "this one listens on 2222" is still worth
+        # keeping - the port is as much a fact about a host as its login.
+        if not host or not (creds.user or creds.password or creds.key_file
+                            or port != 22):
+            continue
+        entry = {"user": creds.user}
+        if with_passwords and creds.password:
+            # Never write the password itself. If this machine has no store,
+            # the row keeps the user and the port and says so in the log -
+            # a silent plaintext fallback is the thing being fixed here.
+            sealed = vault.protect(creds.password)
+            if sealed:
+                entry["password"] = sealed
+            elif lost is not None:
+                lost.append(host)
+        if creds.key_file:
+            entry["key_file"] = creds.key_file
+        if port != 22:
+            entry["port"] = port
+        out[host] = entry
+    return out
+
+
+def plaintext_passwords(cfg: Optional[Dict[str, object]] = None) -> List[str]:
+    """Hosts whose password is still sitting in the file as typed."""
+    table = (cfg if cfg is not None else load_config()).get("per_host") or {}
+    if not isinstance(table, dict):
+        return []
+    return sorted(str(h) for h, e in table.items()
+                  if isinstance(e, dict) and e.get("password")
+                  and not vault.looks_protected(str(e["password"])))
+
+
+def seal_stored_token() -> bool:
+    """Move a NetBox token written before this into the system store.
+
+    It was kept as typed while per-host passwords were already sealed, and
+    it is the more dangerous of the two: one token reads the whole
+    inventory.
+    """
+    cfg = load_config()
+    held = cfg.get("netbox") or {}
+    token = str(held.get("token") or "")
+    if not token or vault.looks_protected(token) or not vault.available():
+        return False
+    sealed = vault.protect(token)
+    if not sealed:
+        return False
+    save_config({"netbox": dict(held, token=sealed)})
+    return True
+
+
+def seal_stored_passwords() -> Tuple[List[str], str]:
+    """Move every plaintext password into the system store, once.
+
+    Returns the hosts that were sealed and, when there is nowhere to put
+    them, the reason - the caller prints it rather than failing quietly.
+    """
+    cfg = load_config()
+    hosts = plaintext_passwords(cfg)
+    if not hosts:
+        return [], ""
+    if not vault.available():
+        return [], vault.why_not()
+    save_config({"per_host": per_host_to_config(per_host_from_config(cfg))})
+    return hosts, ""
 
 
 def port_open(host: str, port: int, timeout: float = 2.5) -> bool:
@@ -144,8 +284,14 @@ def _switch_side(target: str, opts: Options, result: TargetResult,
     result.neighbors = [n for n in result.neighbors
                         if n.resolved or n.local_iface not in resolved_ifaces]
     asked = ", ".join(sw.host for sw in switches)
+    # Only speak where nothing better has. Another probe may already have
+    # named the far end, and "it faces a different switch" is worse than a
+    # MAC that was actually heard on the wire.
+    generic = ("", "probed, no LLDP/CDP frame received")
     for nb in result.neighbors:
-        if not nb.resolved and nb.local_mac and normalise_mac(nb.local_mac) in (macs or []):
+        if nb.resolved or (nb.note or "") not in generic:
+            continue
+        if nb.local_mac and normalise_mac(nb.local_mac) in (macs or []):
             nb.note = ("no LLDP on this port, and its MAC is not in the forwarding table of %s "
                        "- it faces a different switch; pass that one with --switch" % asked)
     if len(result.neighbors) == before and opts.switch_creds.user and macs:
@@ -155,6 +301,46 @@ def _switch_side(target: str, opts: Options, result: TargetResult,
                              target_ip=target, log=say)
 
 
+def host_key(value: str) -> Tuple[str, str]:
+    """A per-host row split into the host it keys on and any user in it.
+
+    The lookup used to be an exact string match, so a row typed as
+    root@10.0.0.5, or with different capitals from the target, matched
+    nothing and was passed over without a word - the password was simply
+    never tried and the host failed to log in.
+    """
+    text = str(value or "").strip()
+    user = ""
+    if "@" in text:
+        login, _sep, text = text.rpartition("@")
+        user = login.partition(":")[0]
+    return text.casefold(), user
+
+
+def _row_for(opts: Options, target: str) -> Tuple[Optional[Creds], str]:
+    table = getattr(opts, "per_host", None) or {}
+    own = table.get(target)
+    if own is not None:
+        return own, ""
+    wanted, _mine = host_key(target)
+    for host, creds in table.items():
+        key, user = host_key(host)
+        if key == wanted:
+            return creds, user
+    return None, ""
+
+
+def unused_logins(targets: List[str], opts: Options) -> List[str]:
+    """Per-host rows that match nothing being scanned.
+
+    A login nobody asked for is harmless; a login that was meant for a host
+    and silently matched none of them is a failed scan with no explanation.
+    """
+    wanted = {host_key(t)[0] for t in targets or []}
+    return sorted(host for host in (getattr(opts, "per_host", None) or {})
+                  if host_key(host)[0] not in wanted)
+
+
 def creds_for(opts: Options, target: str) -> Creds:
     """The login this host was given, or the one everything else uses.
 
@@ -162,10 +348,10 @@ def creds_for(opts: Options, target: str) -> Creds:
     to the shared pair, so the common case of one password for the rack is
     unchanged.
     """
-    own = (getattr(opts, "per_host", None) or {}).get(target)
+    own, spelled = _row_for(opts, target)
     if own is None:
         return opts.ssh
-    return Creds(user=own.user or opts.ssh.user,
+    return Creds(user=own.user or spelled or opts.ssh.user,
                  password=own.password or opts.ssh.password,
                  key_file=own.key_file or opts.ssh.key_file,
                  port=own.port or opts.ssh.port,
@@ -173,8 +359,90 @@ def creds_for(opts: Options, target: str) -> Creds:
                  or opts.ssh.sudo_password)
 
 
-def discover_one(target: str, opts: Options, log: Optional[Callable[[str], None]] = None) -> TargetResult:
+def _login_sequence(opts: Options, first: Creds) -> List[Creds]:
+    """The logins to try for one host, in order.
+
+    When the person gave a login for this host - its own per-host row, the
+    shared pair, or an extra set - ONLY those are tried. A login supplied by
+    hand is used as given, and if it is refused the host is reported refused:
+    the tool does not then reach for every default it knows behind the
+    person's back, which could lock an account and hides a typo. The baked
+    defaults are a fallback for a host the person said nothing about - nothing
+    more - and exist only in the internal build.
+
+    A credential with no username is dropped, never attempted: SSH cannot log
+    in without one, and attempting it made paramiko fall back to the local
+    account. If that leaves the hand-given set empty, the sequence is empty and
+    the caller reports it rather than quietly using the defaults.
+    """
+    from .baked import default_creds
+
+    gave = bool(first and (first.user or first.password or first.key_file)) \
+        or bool(opts.cred_list)
+    pool = ([first] + list(opts.cred_list or [])) if gave else list(default_creds())
+    out, seen = [], set()
+    for creds in pool:
+        if not creds or not creds.user:
+            continue
+        mark = (creds.user, creds.password, creds.key_file, creds.become_password)
+        if mark in seen:
+            continue
+        seen.add(mark)
+        out.append(creds)
+    return out
+
+
+def _switch_first(opts: Options):
+    """A resolver that asks a known switch where a host's ports are, up front.
+
+    The slow part of a scan is listening for LLDP on a host that runs no LLDP
+    daemon - 125 seconds a host. But the switch it plugs into already knows,
+    in its MAC table, which port each of the host's addresses is on, and
+    answers in under a tenth of a second. So where a switch is known, its
+    table is read first and those ports are not listened to at all; only the
+    ports the switch cannot explain - a dark cable, a direct server-to-server
+    link - still fall through to the capture. Returns None when no switch is
+    known, and then nothing changes: the host is listened to as before.
+    """
+    specs = list(opts.switches)
+    if opts.learn:
+        specs += store.candidates(opts.community)
+    if not specs:
+        return None
+
+    def resolve(target_ip: str, mac_by_iface: Dict[str, str]) -> List[Neighbor]:
+        from .probe_snmp import build_switches, probe_switch_side
+
+        wanted = {normalise_mac(m): iface for iface, m in mac_by_iface.items()
+                  if m}
+        if not wanted:
+            return []
+        tmp = TargetResult(target=target_ip)
+        try:
+            switches = build_switches(specs, opts.community)
+            probe_switch_side(target_ip, switches, tmp, macs=list(wanted),
+                              log=lambda _m: None)
+        except Exception:
+            return []
+        out = []
+        for nb in tmp.neighbors:
+            iface = wanted.get(normalise_mac(nb.local_mac))
+            if iface and nb.resolved:
+                nb.local_iface = iface
+                out.append(nb)
+        return out
+
+    return resolve
+
+
+def discover_one(target: str, opts: Options, log: Optional[Callable[[str], None]] = None,
+                 cancel=None) -> TargetResult:
     say = log or (lambda _m: None)
+    from . import cancel as _cancel
+    if _cancel.cancelled(cancel):
+        result = TargetResult(target=target)
+        result.error = "stopped"
+        return result
     ssh_creds = creds_for(opts, target)
     result = TargetResult(target=target)
     say("=== %s ===" % target)
@@ -191,7 +459,15 @@ def discover_one(target: str, opts: Options, log: Optional[Callable[[str], None]
         elif is_bmc:
             mode = "bmc"
         elif port_open(target, ssh_creds.port or 22):
-            mode = "ssh"
+            # A rack PDU answers on 22 and then has no shell at all: the
+            # ordinary probe logs in, is handed nothing back and reports a
+            # machine that says nothing. Its SSH server names the library
+            # it is built on, which no general-purpose host does, so this
+            # costs one connection and no login.
+            from .probe_apc import banner_of, banner_says_no_shell
+
+            mode = "pdu" if banner_says_no_shell(
+                banner_of(target, ssh_creds.port or 22)) else "ssh"
         elif port_open(target, opts.bmc_port):
             mode = "bmc"
         elif opts.switches or (opts.learn and store.candidates(opts.community)):
@@ -206,17 +482,51 @@ def discover_one(target: str, opts: Options, log: Optional[Callable[[str], None]
     try:
         if mode == "windows-local":
             from .probe_windows import probe_windows_local
-            probe_windows_local(result, seconds=opts.seconds, log=say)
+            probe_windows_local(result, seconds=opts.seconds, log=say,
+                                read_serial=opts.read_serial,
+                                serial_baud=opts.serial_baud, cancel=cancel)
         elif mode in ("ssh", "linux", "esxi", "windows"):
             from .probe_linux import run_linux_target
-            got = run_linux_target(target, ssh_creds, want_ifaces=opts.ifaces,
-                                   mgmt_only=opts.mgmt_only, seconds=opts.seconds,
-                                   ptp=opts.ptp, log=say)
+            got = None
+            resolve_switch = _switch_first(opts)
+            sequence = _login_sequence(opts, ssh_creds)
+            if not sequence:
+                # Nothing usable to log in with. A password or key typed with
+                # no username lands here: say so plainly instead of failing on
+                # "authentication" and leaving the person guessing.
+                if ssh_creds.password or ssh_creds.key_file:
+                    result.error = ("a password was given but no username - SSH needs "
+                                    "a username too (or write it as user@%s)" % target)
+                else:
+                    result.error = "no username or password to log in to %s with" % target
+                return result
+            for index, creds in enumerate(sequence):
+                got = run_linux_target(target, creds, want_ifaces=opts.ifaces,
+                                       mgmt_only=opts.mgmt_only,
+                                       seconds=opts.seconds, ptp=opts.ptp,
+                                       neighbours=opts.neighbours,
+                                       identify=opts.identify,
+                                       adb=opts.adb,
+                                       read_serial=opts.read_serial,
+                                       serial_baud=opts.serial_baud,
+                                       resolve_switch=resolve_switch, log=say,
+                                       cancel=cancel)
+                # Only a refused password is worth another login. A timeout or
+                # a dropped session means the next one would be refused the
+                # same way, and some gear locks an account after a few tries.
+                if "rejected the credentials" not in (got.error or "").lower():
+                    break
+                # Say "next one" only when there is one. The hand-given login
+                # is tried alone, so on its refusal there is nothing further -
+                # claiming otherwise read as if defaults were being tried.
+                if index + 1 < len(sequence):
+                    say("  that login was refused - trying the next one known")
             result.kind = got.kind
             result.error = got.error
             result.device_name = got.device_name
             result.device_chassis = got.device_chassis
             result.device_descr = got.device_descr
+            result.device_serial = got.device_serial
             result.attempts.extend(got.attempts)
             result.extra.update(got.extra)
             for nb in got.neighbors:
@@ -226,6 +536,21 @@ def discover_one(target: str, opts: Options, log: Optional[Callable[[str], None]
             probe_redfish(target, opts.bmc_user or ssh_creds.user,
                           opts.bmc_password or ssh_creds.password, result,
                           allow_enable=opts.enable_lldp, log=say, port=opts.bmc_port)
+        elif mode == "pdu":
+            from .probe_apc import read as read_pdu
+
+            found = read_pdu(target, ssh_creds.user, ssh_creds.password,
+                             port=ssh_creds.port or 22, log=say)
+            if not found:
+                result.error = ("it answers SSH but offers no shell, and it "
+                                "is not an APC card either")
+            else:
+                result.kind = "pdu"
+                result.device_name = str(found.get("model number") or "")
+                result.device_serial = str(found.get("serial number") or "")
+                result.device_chassis = str(found.get("mac") or "")
+                result.device_descr = "APC %s" % (found.get("model number") or "")
+                result.extra["pdu"] = found
         elif mode == "switch-cli":
             from .probe_switchcli import probe_switch_as_target
             creds = opts.switch_creds if opts.switch_creds.user else ssh_creds
@@ -289,6 +614,12 @@ def _finish_results(results: List[TargetResult], opts: Options,
         if log:
             log("  naming PTP peers failed: %s" % exc)
     try:
+        from .neighbor6 import name_peers as name_neighbours
+        name_neighbours(results)
+    except Exception as exc:
+        if log:
+            log("  naming IPv6 neighbours failed: %s" % exc)
+    try:
         from .linkcheck import run_link_checks
         run_link_checks(results, community=opts.community, log=log)
     except Exception as exc:
@@ -322,10 +653,32 @@ def _finish_results(results: List[TargetResult], opts: Options,
 
 
 def discover_many(targets: List[str], opts: Options,
-                  log: Optional[Callable[[str], None]] = None) -> List[TargetResult]:
+                  log: Optional[Callable[[str], None]] = None,
+                  on_result: Optional[Callable[[TargetResult], None]] = None
+                  ) -> List[TargetResult]:
+    """Interrogate every target, calling *on_result* as each one lands.
+
+    A capture window is a minute per host. Holding the first host's answer
+    until the last one finishes means staring at an empty table for as long
+    as the slowest device takes, with everything already known.
+    """
+    def arrived(result: TargetResult) -> None:
+        if on_result is None:
+            return
+        try:
+            on_result(result)
+        except Exception:
+            pass
+
+    for host in unused_logins(targets, opts):
+        (log or (lambda _m: None))(
+            "the login saved for %s was not used - nothing being scanned goes "
+            "by that name, so check how it is spelled" % host)
+
     if len(targets) == 1:
-        return _finish_results([discover_one(targets[0], opts, log=log)],
-                               opts, log=log)
+        one = discover_one(targets[0], opts, log=log)
+        arrived(one)
+        return _finish_results([one], opts, log=log)
     say = log or (lambda _m: None)
     buffers: Dict[str, List[str]] = {t: [] for t in targets}
     results: Dict[str, TargetResult] = {}
@@ -346,6 +699,7 @@ def discover_many(targets: List[str], opts: Options,
                 results[target] = failed
             for line in buffers[target]:
                 say(line)
+            arrived(results[target])
     return _finish_results([results[t] for t in targets], opts, log=say)
 
 
@@ -358,12 +712,30 @@ def targets_with_logins(values: List[str], targets_file: str = "",
     reason, rather than being handed to the probes to fail as "nothing to talk
     to" - which sends a person to check a firewall when the fault is a typo.
     """
+    from .ranges import expand_all
     from .targets import complain, split
 
+    # A network or a run of addresses is how people hold a bench. Opening
+    # them out here means every path below - one device, a map, a lookup -
+    # gets the same treatment, and nothing is dropped without a word.
+    opened, said, refused = expand_all(list(values or []))
+    if log:
+        for line in said:
+            log("range: %s" % line)
+        for line in refused:
+            log("range: %s" % line)
+    values = opened
     hosts, logins, bad = split(values, targets_file)
-    if bad and log:
+    if log:
+        # Say what went in and what did not, side by side, so a typo in one
+        # address is seen at a glance rather than hunted for - the scan lists
+        # what it accepted, then each one it refused and why.
+        if hosts:
+            log("accepted %d address(es): %s" % (len(hosts), ", ".join(hosts)))
         for line in complain(bad):
             log(line)
+        if bad and not hosts:
+            log("nothing valid to scan - fix the address(es) above and retry")
     return hosts, {host: Creds(user=user, password=password)
                    for host, (user, password) in logins.items()}
 
@@ -379,3 +751,38 @@ def expand_targets(values: List[str], targets_file: str = "") -> List[str]:
                 if line:
                     out.append(line)
     return list(dict.fromkeys(out))
+
+
+def exposed_by_git(path: str) -> str:
+    """Warn when the defaults file sits in a git work tree that would take it.
+
+    A home directory is a surprisingly common place to find a repository, and
+    this file holds passwords and, now, an API token. Being untracked is not
+    safety: one `git add .` publishes it. Returns the reason, or "" when it is
+    either not in a repository or properly ignored.
+    """
+    folder = os.path.dirname(os.path.abspath(path)) or "."
+    try:
+        from .proc import run_quiet
+    except Exception:
+        return ""
+    # As a list, never as one string. A string with shell=False runs on
+    # Windows and on Linux looks for a file called "git -C ... rev-parse",
+    # so this whole warning silently never fired on a server.
+    rc, out = run_quiet(["git", "-C", folder, "rev-parse",
+                         "--is-inside-work-tree"])
+    if rc != 0 or "true" not in (out or "").lower():
+        return ""
+    rc, _out = run_quiet(["git", "-C", folder, "check-ignore", "-q",
+                          os.path.abspath(path)])
+    if rc == 0:
+        return ""           # git has been told to leave it alone
+    rc, remote = run_quiet(["git", "-C", folder, "remote", "get-url", "origin"])
+    where = (remote or "").strip().splitlines()[0] if (remote or "").strip() else ""
+    return ("%s is inside a git repository%s and is not ignored - a plain "
+            "`git add .` there would commit it"
+            % (path, (" whose remote is " + where) if where else ""))
+
+
+def _quoted(text: str) -> str:
+    return '"%s"' % str(text).replace('"', '')

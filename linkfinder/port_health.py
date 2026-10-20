@@ -19,7 +19,11 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 from .netaddr import is_reachable_mgmt
-
+# The switch's own LLDP port table. It was used below without ever being
+# imported, so the lookup raised NameError on every switch and a bare
+# except swallowed it: the exact route this function is built around has
+# never once run, and it fell back to guessing by port number every time.
+from .probe_snmp import OID_LLDP_LOC_PORTID
 from .snmp import SnmpError, as_mac, as_text
 
 OID_SYS_UPTIME = "1.3.6.1.2.1.1.3.0"

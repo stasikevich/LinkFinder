@@ -76,21 +76,21 @@ class Card:
                     "detail": "%g C, but the card publishes no limit to judge it "
                               "against" % self.celsius}
         if self.celsius >= limit:
-            return {"a": self.celsius, "b": limit, "verdict": VERDICT_WARN,
+            return {"a": self.celsius, "b": limit, "compares": "limit", "units": "C", "verdict": VERDICT_WARN,
                     "confidence": "high",
                     "detail": "%g C, at or past the card's own limit of %g"
                               % (self.celsius, limit),
                     "evidence": ["hwmon temp1_input = %g" % self.celsius,
                                  "hwmon limit = %g" % limit]}
         if self.celsius >= limit * WARM_FRACTION:
-            return {"a": self.celsius, "b": limit, "verdict": VERDICT_WARN,
+            return {"a": self.celsius, "b": limit, "compares": "limit", "units": "C", "verdict": VERDICT_WARN,
                     "confidence": "medium",
                     "detail": "%g C, within %d%% of the card's limit of %g"
                               % (self.celsius, int((1 - WARM_FRACTION) * 100),
                                  limit),
                     "evidence": ["hwmon temp1_input = %g" % self.celsius,
                                  "hwmon limit = %g" % limit]}
-        return {"a": self.celsius, "b": limit, "verdict": VERDICT_MATCH,
+        return {"a": self.celsius, "b": limit, "compares": "limit", "units": "C", "verdict": VERDICT_MATCH,
                 "confidence": "high"}
 
     def to_dict(self) -> Dict[str, Any]:

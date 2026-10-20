@@ -340,6 +340,27 @@ def identify(ssh: Ssh) -> Tuple[Dialect, str, str]:
     return GENERIC, "", ""
 
 
+def _read_routeros_hardware(ssh: Ssh, result: TargetResult,
+                            say: Callable[[str], None]) -> None:
+    """Transceivers, temperatures, fans and power supplies off a RouterOS box.
+
+    Never fatal: a neighbour table is the job, and losing a map because a
+    health reading would not parse would be a poor trade.
+    """
+    from . import hardware, routeros
+
+    try:
+        found = routeros.collect(lambda cmd: ssh.run(cmd, timeout=90)[1], say)
+    except Exception as problem:
+        say("  switch hardware not read: %s" % problem)
+        return
+    for key in ("optics", "ports", "health"):
+        if found.get(key):
+            result.extra[key] = found[key]
+    if found.get("hardware"):
+        hardware.attach(result, found["hardware"], say)
+
+
 def probe_switch_as_target(host: str, creds: Creds, result: TargetResult,
                            log: Optional[Callable[[str], None]] = None,
                            ssh: Optional[Ssh] = None) -> TargetResult:
@@ -385,6 +406,11 @@ def probe_switch_as_target(host: str, creds: Creds, result: TargetResult,
         result.attempts.append(ProbeAttempt("switch-cli-neighbours", bool(found),
                                             "%d neighbour(s)" % len(result.neighbors),
                                             round(time.time() - started, 1)))
+        # A switch knows its own transceivers, temperatures and power supplies,
+        # and was never asked. Only RouterOS can be asked this way so far; the
+        # other dialects keep the behaviour they had.
+        if dialect.name == "mikrotik":
+            _read_routeros_hardware(ssh, result, say)
         if not result.neighbors and not result.error:
             result.error = ("logged into %s (%s) but could not read a neighbour table - "
                             "LLDP/CDP may be off on it" % (host, dialect.name))

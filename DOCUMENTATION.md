@@ -10,6 +10,7 @@ does not come back.
 - [2. Running it](#2-running-it)
 - [3. The window, field by field](#3-the-window-field-by-field)
 - [4. Command line reference](#4-command-line-reference)
+- [4a. Architecture](#4a-architecture)
 - [5. How a device is interrogated](#5-how-a-device-is-interrogated)
 - [6. Topology discovery](#6-topology-discovery)
 - [7. File formats](#7-file-formats)
@@ -57,21 +58,50 @@ python -m linkfinder --gui
 
 SNMP needs no package - the SNMPv2c client is written against the standard library.
 
+### Running it from Linux
+
+It runs from Linux as well as from Windows; Windows is simply the side that
+gets used daily here.
+
+Proven on Ubuntu 22.04 with the distribution Python 3.10 and nothing installed:
+every test suite, the command line, an SNMP scan against a live switch, and
+port health. That is the whole SNMP half of the tool, and it needs no package
+at all.
+
+Two things do want one:
+
+| You want | Install |
+|---|---|
+| the SSH and BMC paths | `pip install paramiko requests` |
+| the window | `apt install python3-tk` - tkinter is not a pip package |
+
+Without paramiko the SSH path does not crash: it reports
+`paramiko is not installed (pip install paramiko)` and the SNMP paths carry on.
+
+The host's own neighbour cache is read with `ip` rather than `arp`, because
+net-tools is absent from plenty of minimal installs and containers while `ip`
+is always there. `arp` stays as the fallback for older boxes, and Windows keeps
+using it outright.
+
 ---
 
 ## 3. The window, field by field
 
-Two places to be, over one top bar and one status bar. Everything site-specific is
-typed in; the window never stores anything by itself.
+One place to work and one log, over a top bar and a status bar. Everything
+site-specific is typed in; the window never stores anything by itself.
 
 ```
- Target [10.0.0.5, 10.0.0.6  or  server1]  Login [root]  Password [****] (SSH, or the BMC)
-                                                    [ Scan ]  [ Advanced ]      Theme [system]
+ Target [10.0.0.5, 10.0.0.6  or  server1]  Login [root]  Password [****]  [ Advanced ]
  ------------------------------------------------------------------------------------------
-  [Device]  Map   Log                                            [ Compare... ]  [ Export... ]
+  [Devices]  Log
  ------------------------------------------------------------------------------------------
-  node-a  -  linux  -  Dell PowerEdge R650
-  Scanned 3 device(s) at 19:12:53: 198.51.100.10, 198.51.100.11, 198.51.100.13
+  [ Scan ] [ Map Network ] [ Stop ]      NetBox ready  [ SSH ] [ Save... ] [ Open Map ]
+  Scan asks the address(es) in Target and nothing else.  Map Network walks outward
+  from them and draws it - up to 2 hops or 25 devices, changeable under Advanced.
+ ------------------------------------------------------------------------------------------
+  DEPTH  DEVICE   KIND   SETUP   STATE     MANAGEMENT IP     WHY
+  0      node-a   linux  dio     scanned   198.51.100.10     -
+  1      sw-core-1 switch -      scanned   198.51.100.2      -
   Device [ 198.51.100.10 (node-a) v ]
   [ ] Also read switch port counters    sample [3] s   expect [    ] Mbps
  ------------------------------------------------------------------------------------------
@@ -91,8 +121,10 @@ typed in; the window never stores anything by itself.
 
 It used to be five tabs, and that was the wrong shape: a single port's neighbour was
 on one tab, its health on another and its timing on a third, so answering one
-question meant visiting three places and holding the port name in your head. A
-device is one page now. The site is the other.
+question meant visiting three places and holding the port name in your head. Then
+Device and Map were still two pages for one question - same targets, same logins,
+differing only in how far to walk. They are one page now: the devices found, and
+under them the ports of whichever is selected.
 
 ### Top bar
 
@@ -100,7 +132,6 @@ device is one page now. The site is the other.
 |---|---|
 | **Target** | Address to scan, or the seed for a map. Several, comma or space separated. A host needing its own login is written `root@10.0.0.5` or `admin:secret@10.0.0.5`. The grey example is a hint, not a value - it is never scanned. Enter runs the scan. |
 | **Login / Password** | SSH credentials, reused for a BMC unless the Advanced panel overrides them; the password is also used for `sudo`. With a password set, agent keys are not tried - network devices allow very few auth attempts. |
-| **Scan** | Runs the port lookup for the target. |
 | **Advanced** | Folds out everything you set once: SSH key, BMC credentials, switches and SNMP community, interface filter, MAC, mode, capture seconds, and the three behaviour ticks. |
 | **Theme** | `system`, `light` or `dark`. `system` follows the Windows setting. |
 
@@ -115,11 +146,16 @@ device is one page now. The site is the other.
 | **Interfaces** | Restrict the probe. A bond expands to its physical legs. |
 | **MAC (switch-side)** | Look this MAC up instead of working one out. |
 | **Mode** | `auto` decides for itself; the rest force a path. |
-| **Capture seconds** | How long to listen when a capture is unavoidable. 65 by default, LLDP ticks every 30. |
+| **Capture seconds** | The longest it will listen when a capture is unavoidable. LLDP ticks every 30 seconds, CDP every 60. A host seen before is listened to for less - see below. |
 | **management interface only** | Probe only the interface carrying the address typed. |
 | **enable LLDP on a BMC if it is off** | Allows one write to the BMC. Untick to leave it untouched. |
 | **remember switches it finds** | Writes to `~/.linkfinder-switches.json`. Off by default. |
 | **Known switches / Forget** | Show or wipe that list. |
+| **Per-host logins** | One row per host that does not share the login in the top bar. Password masked. A host listed here is asked as well - it does not have to be in Target too. |
+| **Load list...** | Read a host list file, the format `--targets-file` takes; fills the table and Target. `File` -> `Save an example host list...` writes one with the format in its own comments. |
+| **remember these logins** | Writes the table, passwords included, into the defaults file. Off by default. |
+| **Forget saved / Clear** | Remove them from the file, or empty the table on screen. |
+| **Extra logins to try** | Not tied to a host. Tried in order, and only after a device actually rejected the login before them. |
 
 ### Device
 
@@ -156,12 +192,24 @@ With more than one target a **Device** picker appears; with one it stays hidden.
 line above it says how many devices were scanned and when, so a page left over from
 an earlier run cannot be mistaken for the current one.
 
-### Map
+### The two actions
 
-Its own controls, kept away from single-device lookup: **max depth**, **max devices**,
-**stay inside (CIDR)**, a **keep going without asking** tick, and
-**Generate / Open / Merge... / Stop**. The table lists every device found with its
-depth, state, management address and - when it was not scanned - why.
+**Scan** asks the address(es) in Target and nothing else. **Map Network** walks
+outward from them, draws the map, writes the table, the data and the page side by
+side, and offers to open it. **Open Map** opens the one already drawn without
+walking anything again, and **Stop** finishes the devices already being asked and
+then stops.
+
+They were briefly one button with a *how far* choice beside it - These / +
+Connected / Whole site. It read as though the map were a setting on a scan, when
+the map is the thing people come here to make, so they are two buttons again. How
+far to walk lives under **Advanced**, with **Map Network stops after** N hops or N
+devices, **stay inside (CIDR)** and a **keep going without asking** tick. The line
+under the buttons names the limits in force, so nobody has to press Map Network to
+find out how far it goes.
+
+The table lists every device found with its depth, state, management address and -
+when it was not scanned - why.
 
 **Compare...** in the top right takes two saved topology files and reports what moved
 between them, into the Log.
@@ -212,13 +260,59 @@ nobody meant to type that, and reporting it as "no SSH, no HTTPS" would send a
 person to check a firewall over an extra digit. Anything containing a letter is
 treated as a hostname and left alone.
 
+### Hosts that need their own login
+
+Not every box shares one password. Three ways to say so, and they combine:
+
+1. **In the Target field** - `root@10.0.0.5`, or `admin:secret@10.0.0.6`. The split is
+   from the right, so a password may itself contain an `@`.
+2. **The Per-host logins table** under Advanced - one row per host, password masked.
+   `Load list...` reads a host list file, the same format `--targets-file` takes, and
+   fills both the table and Target from it. A host in this table is **asked as well**,
+   whether or not it is in Target: typing a host, a user and a password in is asking
+   for that host. It used to decide only which password to use if a walk happened to
+   arrive there, so four hosts entered by hand were never visited and the map came
+   back without them, saying nothing.
+3. **The shared Login / Password** in the top bar, used by every host not named above.
+4. **Extra logins to try**, under the table - pairs with no host against them, used as a
+   fallback when you do not know which box wants which. Each one costs a failed attempt
+   on a device that refuses it, and network gear drops the session after two or three,
+   so they are tried only after a real rejection and the list is meant to stay short.
+
+Order of preference, highest first:
+
+| Where the login came from | Beats |
+|---|---|
+| typed into Target as `user:pass@host` | everything |
+| the Per-host logins table | the shared login |
+| the shared Login / Password | - |
+| the Extra logins list, or `--cred` | tried only after an actual rejection |
+
+A user given without a password borrows the shared password, so a host that only needs
+a different username costs one field.
+
+**Remembering them.** The tick `remember these logins (writes passwords to disk)` is off
+by default. With it on, the table is written into the defaults file as
+
+```json
+{
+  "per_host": {
+    "10.0.0.5": {"user": "root", "password": "secret"}
+  }
+}
+```
+
+in the clear, in your home directory, alongside a `creds` list holding the extra logins.
+`Forget saved` removes both keys again. The command line reads the same two, so a login
+saved once works in both front ends.
+
 ### Targets and access
 
 | Flag | Meaning |
 |---|---|
 | `targets` | Positional. Addresses, comma or space separated. |
-| `--targets-file FILE` | One target per line; `#` comments allowed. |
-| `-m, --mode` | `auto`, `ssh`, `linux`, `esxi`, `windows`, `windows-local`, `bmc`, `switch`, `switch-cli`. |
+| `--targets-file FILE` | One target per line; `#` comments allowed. A line may be a host, `root:secret@host`, or a whole network. A `[name]` line puts everything under it into that setup. `File` -> `Save an example host list...` writes one to start from. |
+| `-m, --mode` | `auto`, `ssh`, `linux`, `esxi`, `windows`, `windows-local`, `bmc`, `switch`, `switch-cli`, `pdu`. |
 | `-u, --user`, `-p, --password` | SSH credentials. The password is also used for `sudo`. |
 | `--sudo-password` | When sudo differs from the login password. |
 | `-i, --key FILE` | SSH private key. |
@@ -284,9 +378,230 @@ temp directory rather than lost.
 | `--learn` | Remember discovered switches. Off by default. |
 | `--remember-credentials` | With `--learn`, also store the SNMP community that worked. |
 | `--list-switches`, `--forget-switches [IP]` | Inspect or wipe the remembered list. |
+| `--forget-logins` | Remove the saved per-host logins and extra credentials from the defaults file. The window's **Forget logins** does the same. |
 | `--gui` | Open the window. |
 
 Exit code is `0` when at least one link resolved, `1` when none did.
+
+---
+
+## 4a. Architecture
+
+This section is the map of the three that follow it. Sections 5 and 6 describe each
+stage in detail; this one says what the stages are, why they are in that order, and
+where each lives in the source.
+
+### The shape
+
+Five stages. Each hands the next **data**, never a call, which is why every one of
+them can be tested on its own with no network at all.
+
+```
+targets  ->  access path  ->  device readings  ->  link graph  ->  map + disagreements
+```
+
+The graph in the middle is the contract. It is written out as JSON, so it can be
+saved, merged with another scan, compared against yesterday, or re-rendered without
+touching a single device again.
+
+### Two guarantees
+
+**It only reads.** No command the tool issues changes anything on a target. There is
+no write path to NetBox and none is planned - the disagreement report is the product.
+
+**It never reaches the internet.** Everything it needs is inside the binary: the IEEE
+vendor register, the icons, the graph library, the help you are reading. A tool that
+maps a lab must work in a lab with no way out.
+
+### Stage 1 - what counts as a target
+
+`linkfinder/targets.py` turns what you typed into a list: one address, a subnet such
+as `192.0.2.0/24`, a range, or a file. A file may carry a login per line
+(`root@192.0.2.5`) and a `[setup name]` heading.
+
+**This is not a subnet scanner.** Give it one address and it visits that address, then
+only the addresses devices themselves named. It never invents an address and knocks.
+
+The walk is breadth-first (`linkfinder/crawl.py`): the seed is depth 0, its neighbours
+depth 1, and so on. At `max_depth` - 2 by default - devices are still interrogated,
+but their neighbours are no longer expanded.
+
+### Stage 2 - choosing the access path
+
+Decided per target, before any login, in `linkfinder/engine.py`:
+
+| What answers | Conclusion |
+|---|---|
+| Redfish on 443 | management controller |
+| port 22, and the SSH banner names a crypto library | rack PDU - it has no shell at all |
+| port 22 | ordinary host, over SSH |
+| no 22, but 443 | management controller |
+| `--switch` was given | switch, over SNMP |
+
+The PDU case is worth the paragraph it costs. A rack PDU accepts an SSH login and then
+refuses to run a command, so the ordinary probe logged in, was handed nothing, and
+reported a machine that said nothing at all. Its SSH server names the library it was
+built on, which no general-purpose host does - one connection, no login, and the tool
+knows to speak to it as a PDU instead.
+
+### Stage 3 - reading the device
+
+| Class | Access | What it is read with |
+|---|---|---|
+| Linux host | SSH | `ip`, `bridge fdb`, `ethtool`, `lldpctl` / `lldpcli`, `networkctl`, `lldptool`, `tcpdump`, `sensors`, `ipmitool`, `dmidecode` |
+| Switch | SNMP | LLDP-REM, CDP, dot1d / dot1q forwarding tables, ARP, ifName, ifAlias, sysDescr |
+| Switch | SSH CLI | `show lldp neighbors detail`, `show cdp neighbors detail`, `show version` |
+| Management controller | Redfish over HTTPS | inventory and the controller's own interfaces |
+| Rack PDU | SSH, interactive session | `about`, `netstat`, `olStatus all` |
+| ESXi | SSH | `pktcap-uw` in place of `tcpdump` |
+| Windows | locally | the PnP registry, `pktmon` |
+| Handset | USB / ADB | `/sys/bus/usb/devices/*`, `adb devices` |
+
+Nothing is installed on a target, and nothing is left behind.
+
+#### Neighbours, cheapest source first
+
+On a Linux host the sources are tried cheapest first, and **each one runs only for the
+ports the previous one did not settle** - so the 125-second listen is reached only for
+a port nothing faster could explain:
+
+1. `lldpctl` - a daemon has already been listening, so the answer is immediate
+2. `networkctl lldp` - the same, from systemd
+3. `lldptool` - one port at a time
+4. **the switch's MAC table**, where a switch is known and answers SNMP: it already
+   holds which port each of the host's addresses is on, in under a tenth of a second.
+   Those ports are then never listened to. See "Asking the switch first" below.
+5. **the host's own neighbour cache**, read with no pinging and no waiting: a port with
+   a reachable link-local peer is a direct cable the capture would only sit silent on,
+   because LLDP was already tried above and found none. Reading the cache costs one
+   command; those ports drop out of the listen too.
+6. `tcpdump` - listen for the frames ourselves, for the ports still unexplained
+7. `tshark` - where there is no `tcpdump`
+8. a raw-socket sniffer in Python - where there is neither
+
+On a host running an LLDP daemon there is nothing to listen for. Where a switch answers
+or a neighbour is already cached, those ports are resolved in seconds. Only a port that
+is genuinely silent - nothing has ever spoken over it - is listened to for the full
+window, because confirming silence is the one thing that cannot be hurried.
+
+#### Asking the switch first
+
+The slow part of a scan is listening for LLDP on a host that runs no LLDP daemon. The
+switch it plugs into already knows, in its MAC table, which port each of the host's
+addresses is on, and answers over SNMP in a fraction of a second - **read-only, no
+login, just the switch address and SNMP enabled** (the tool also learns the switch
+address from the host's own LLDP, so often it is given for free). Where a switch is
+known, its table is read before any listening and those ports are skipped. The MAC
+table carries the port's VLAN too, so a VLAN mismatch surfaces at the same time. Ports
+the switch cannot explain - a dark cable, a direct server-to-server link - still fall
+through to the capture, so nothing is lost where no switch can help.
+
+#### Why the listen is as long as it is
+
+LLDP sends every 30 seconds and CDP every 60 (IEEE 802.1AB; CDP by convention), so the
+capture window is **125 seconds**, with **34 seconds** of grace after the last frame.
+The grace used to be 8 seconds - shorter than one LLDP interval - and a cable with two
+talkers on it reliably lost one of them. The window is only ever reached for a port the
+switch and the neighbour cache could not already settle.
+
+#### What else comes off a host
+
+Every port with an address, a speed, an MTU and a carrier; the burned-in hardware
+addresses, not the ones a bond substitutes; the bridge forwarding table; the optics,
+with wavelength, reach and the rate the link settled at; card temperatures; DHCP
+leases; the BMC address read from inside the machine; attached USB devices; serials.
+
+It also lists the **serial ports** and marks the one a radio is most likely on. A
+radio's console is usually reached through a USB-to-serial cable, and nobody
+remembers which `/dev/ttyUSB*` or `COMx` it became. The host already knows: the
+kernel names the adapter, its bridge chip (FTDI, CP210x, CH340, Prolific, …) and
+the cable's own serial number. LinkFinder reads that out - over the same SSH
+session on Linux, or from the local PnP table when the Windows binary is run on the
+machine itself - and flags the USB-serial adapters apart from the motherboard's own
+UARTs and any Bluetooth COM port, where a radio never is. Nothing is opened or
+written: reading a byte off the line would interrupt whatever is already talking to
+the radio, so the identity alone names the port. It shows up under **Serial ports**
+on the device panel, radio cable first. (`linkfinder/serialports.py`.)
+
+A fronthaul radio reached inside a pod's network namespace is found by probing -
+it answers SSH and NETCONF on its link-local address - which says a radio is
+there, not which one. When the radio's management plane is up, the tool reads
+the radio's **own serial and model** the standard way: a NETCONF `<get>` of the
+`ietf-hardware` model on port 830, run from inside the namespace through the
+host's own ssh client, nothing installed. It is a read, never an edit, and the
+serial lands on the radio's node like any other device's. The logins it tries,
+and - as a fallback, for a radio whose management plane is down - where a host
+records a radio's serial in its own files, are site-specific and so are carried
+only by the internal build, never the open one or the repository, exactly like
+the host logins. (`linkfinder/netconf.py`, `linkfinder/radiolog.py`.)
+
+### Stage 4 - working out what is cabled to what
+
+LLDP and CDP are handled during the probe: a device announced its neighbour, and that
+is the strongest evidence there is. Everything else runs **after** the probes, over
+the finished graph, in one declared order - `linkfinder/ladder.py`:
+
+| # | Rung | What it does |
+|---|---|---|
+| 1 | virtual machine to hypervisor | the guest's address is in the host's bridge table, or its hardware address follows a hypervisor's convention - not evidence about a cable, the cable itself |
+| 2 | PTP links | a clock hierarchy names its own parent, deliberately |
+| 3 | PTP clock roots | the grandmaster each clock is following, placed on the map |
+| 4 | IPv6 neighbours | a link-local address belongs to one cable, not to a subnet |
+| 5 | IPv4 neighbour cache | the last rung that adds a link, and only for ports nothing above settled |
+| 6 | LACP partner | not a cable but a switch, named by its own aggregator |
+| 7 | controller cross-check | a management controller already on the map, matched to its host |
+| 8 | consistency check | flags the cables whose two ends tell different stories |
+| 9 | LAG folding | collapses the members of a bond into the one link they really are |
+
+The last four read the finished map rather than any probe output, which is why they
+come after everything that can still add to it.
+
+**The order is the rule: a port settled by stronger evidence is never revisited by
+anything weaker.** That order used to live nowhere. Each caller imported the builders
+it remembered and ran them as they happened to be written, so a crawl and a plain host
+list drew *different maps from identical facts*.
+
+No rung is fatal. One that cannot run says so and the rest carry on: a map missing one
+kind of link is worth far more than no map.
+
+### Stage 5 - how far to believe it
+
+The three words on a link count **independent witnesses**, not probability. They are
+decided in one place, `linkfinder/topology.py`:
+
+| Word | What happened |
+|---|---|
+| `confirmed` | both ends named each other, independently |
+| `reported` | one end announced it; the other was never asked, or stayed silent |
+| `inferred` | neither end said anything - it was worked out from other evidence |
+
+An `inferred` link names the evidence it came from, in words, on its own panel. See
+[Link confidence](#link-confidence) for the long version.
+
+### Stage 6 - what is done with the finished graph
+
+`linkfinder/topology.py` is pure data: nothing in it talks to a device. From there:
+
+| Output | Module | What it is |
+|---|---|---|
+| the map | `linkfinder/render_topology.py` | a page served on `127.0.0.1`, graph library bundled |
+| NetBox comparison | `linkfinder/netbox.py` | a record of intent beside a record of fact; read-only |
+| three CSV reports | `linkfinder/findings.py` | what NetBox disagrees with, what moved, what does not add up |
+| rings | `linkfinder/loops.py` | a redundant path is not a fault; a ring with a leg blocked by spanning tree is a correct network |
+| end-to-end checks | `linkfinder/linkcheck.py` | speed, MTU and VLAN - reported only when both ends spoke |
+
+### How the product itself is checked
+
+Sixty suites, and six gates. Two read the source: no name is used that nothing defines,
+and no site name appears anywhere in the prose or the examples. Four read **the built
+product**: every module is really inside the binary, no settings or site names were
+bundled with it, both front ends wear the same icon, and the binary starts and does
+its work.
+
+That is not caution for its own sake. A dynamically assembled import once dropped three
+modules from the binary: PyInstaller reads source to find what a program imports and
+cannot see a name built at run time. Maps came out missing every ARP and every PTP link
+for hours, while every suite stayed green - because from source it all worked.
 
 ---
 
@@ -307,6 +622,43 @@ otherwise HTTPS, otherwise the switch side.
    what makes nodes with no capture tool answerable.
 
 SUSE nodes that only have `tcpdump` inside `toolbox` are handled there.
+
+### How long it listens, and why it is not less
+
+Interrogating one host was measured at 145 seconds, 127 of them spent
+listening for discovery frames. The listening stops as soon as every port
+being watched has produced one - but a host with four ports two of which
+have no neighbour never meets that condition, so the window runs out.
+
+Shortening it was tried and **turned off again**, and the measurement is
+worth keeping. Remembering which ports had ever spoken, and waiting only
+for those, took one host from 145 seconds to 60 with every neighbour still
+found, three runs in a row. Across a site of nineteen it took 661 seconds
+to 416 - and the map came back with ten fewer links. Two cold passes of
+the same site differ by one link, so that was not the network being moody.
+
+Exactly two hosts accounted for all ten, and they are the two whose radio
+units answer over IPv6 neighbour discovery inside a pod's network
+namespace. One went from four neighbours to none, the other from six to
+three; the other seventeen hosts were identical to the entry.
+
+The reason is the thing being shortened. While a capture runs the
+interface is listening, the kernel sees the advertisements going past and
+fills its neighbour cache - which is read afterwards. Listening for less
+time genuinely hears less. Nothing was dropped by a defect; it was never
+heard in the first place.
+
+So the whole window is what runs. `linkfinder/quiet.py` keeps the
+machinery and the measurement, switched off, for the day somebody can tell
+those two hosts from the other seventeen before deciding how long to
+listen.
+
+**What did change** is the grace period after the last expected port
+lands. It was eight seconds, which is shorter than the gap between one
+device's advertisements: a management port facing both a switch and a
+virtual machine reported the switch and lost the machine. It is now one
+full LLDP interval. Hearing whoever spoke first is not the same as hearing
+what is on the wire.
 
 Bonds and VLANs are resolved through `/sys/class/net/*/lower_*` down to the physical
 legs, so each cable gets its own row.
@@ -365,6 +717,26 @@ name, a serial - is kept as text.
 Some devices answer with more than one chassis MAC. When they also publish a serial or a
 software id, that is used as an extra key and the two halves merge.
 
+### What is believed, and in what order
+
+Several things can claim that two ports are cabled together, and they are not equally
+good. The rule is that the stronger evidence goes first, and a port it has already
+settled is never revisited by anything weaker - so a guess cannot overwrite a fact, and
+one cable cannot be drawn twice.
+
+| | Evidence | Why it sits there |
+|---|---|---|
+| 1 | LLDP / CDP | The device says who it is, on purpose, out of that port. |
+| 2 | PTP | A clock hierarchy names its own parent. |
+| 3 | SNMP forwarding table | The switch itself says which port a MAC is behind. |
+| 4 | IPv6 neighbour | A link-local address belongs to one cable, not a subnet. |
+| 5 | IPv4 ARP | The last rung, and only for ports nothing above settled. |
+| 6 | LACP partner | Not a cable but a switch, named by its aggregator. |
+
+That order lives in one list, in `linkfinder/ladder.py`, and both the crawl and a plain
+host list walk it. They used to keep a copy each, and the copies had drifted: one knew
+about PTP and the other did not, so the same facts drew two different maps.
+
 ### Merging never destroys
 
 | Field | Rule |
@@ -384,6 +756,32 @@ All three are always in force.
 - `max_devices` - a ceiling on interrogations; the device that is refused is recorded as `limit-reached`.
 - `scope` - restricts connecting only. Out-of-scope neighbours are still nodes.
 
+### It starts from the scan you already did
+
+Pressing Map Network after a Scan does not interrogate those devices again. What
+the scan collected is written straight into the map, and the walk begins from
+their neighbours. The map page says so before you press anything:
+
+```
+Starting from the scan of 3 device(s) taken just now - only what is new gets asked.
+```
+
+Two consequences worth knowing:
+
+- Every address in the Target field is a seed, not only the first. Scanning
+  three hosts and then generating gives you all three on the map.
+- The map is only as fresh as the scan it reuses. The age is printed; press
+  Scan again to refresh it.
+
+On the command line the same thing: `--topology` takes a list.
+
+```bash
+python -m linkfinder --topology 10.0.0.1,10.0.0.2,10.0.0.3 --max-depth 2
+```
+
+A seed may carry its own login, exactly as a scan target may:
+`--topology root@10.0.0.1,admin:secret@10.0.0.2`.
+
 ### Confirm mode
 
 The default. Between levels:
@@ -397,6 +795,32 @@ Add and scan discovered neighbours? [y/N]
 `--auto-discover` skips the question. It is never the default. In the window the same
 question appears as a dialog.
 
+### Cables between two servers
+
+A direct cable from one host to another has nobody to report it. Neither end is a
+bridge, so there is no LLDP; no switch sits in the middle, so there is no forwarding
+table to look it up in. Every other method in this tool is blind to it.
+
+PTP answers it, because the hosts are already talking. After the walk, the clocks each
+port heard are matched against the clocks the other devices announce:
+
+| What was heard | Drawn as |
+|---|---|
+| two ports hear each other and nothing else | `direct` - most likely a cable |
+| a clock heard, but by more than one of our ports, or only one way | `segment` - shared layer-2, not proof of a cable |
+| nothing nameable | no edge at all |
+
+The grading is deliberately cautious both ways. One clock audible from two of our ports
+rules out a cable on at least one of them; one port hearing two clocks rules out a cable
+on that port, whichever the far ends are - a splitter or a hub looks exactly like that.
+
+Two limits worth knowing before reading the map:
+
+- **A master port transmits; it usually hears nothing.** A link is pairable only when at
+  least one end is listening, so a pair of master ports facing each other stays undrawn.
+- **Both ends have to be in the same run.** A grandmaster that was not scanned is named
+  in the port's details but has no node to draw an edge to.
+
 ### Nothing is a dead end
 
 - A neighbour with no management address is still a node, marked `unscanned`.
@@ -407,11 +831,29 @@ question appears as a dialog.
 
 ### Link confidence
 
-| Value | Meaning | Drawn as |
+The three words count **how many ends said so themselves**. They are not a
+score of how likely the link is - they say who the witness was.
+
+| Value | What happened | Drawn as |
 |---|---|---|
-| `confirmed` | both ends reported the link | solid |
-| `reported` | only one end did | dashed |
-| `inferred` | derived from a forwarding table | dotted |
+| `confirmed` | both ends named each other, independently | solid |
+| `reported` | one end announced it; the other was never asked or stayed silent | dashed |
+| `inferred` | neither end said anything - it was worked out from other evidence | dotted |
+
+`confirmed` is the only one with two witnesses. Each end was asked on its own
+and neither knows the other was asked, so they cannot agree a wrong answer
+between them. That is what separates a cable from a one-way tap: a passive
+tap hears both sides and neither side hears it, so it can never be confirmed.
+
+`reported` means a discovery protocol - LLDP, CDP, MNDP/LLDP - or a USB bus
+enumeration. The device said it; nobody checked it. Scanning the far end is
+what turns it into `confirmed`.
+
+`inferred` is this tool's own conclusion, drawn from what answered on a port
+(IPv6 neighbour discovery), a forwarding table, the ARP cache, or timing
+traffic. The panel names which of those it was, in words, on every such link.
+A high `inferred` count is not an error - it means those far ends have not
+been scanned.
 
 A cable is one edge no matter which end reported it, and no matter how many times.
 
@@ -721,7 +1163,7 @@ clocks in the way".
 **Naming a switch from its clock.** A boundary clock derives its clock identity
 from its chassis MAC, and that is the same MAC it publishes as its LLDP chassis
 id. Matching clock identities against the switches already on the map - not only
-against our own NICs - is what turns `000580.fffe.08355b` into a switch name. On
+against our own NICs - is what turns `025566.fffe.000001` into a switch name. On
 the bench that identity belonged to the switch the servers were plugged into the
 whole time.
 
@@ -774,10 +1216,10 @@ different matter and is reported as a split domain.
 
 ```
 PTP, domain 24
-  grandmaster 000580.fffe.08355b  (sw-core-1, class 6)
+  grandmaster 025566.fffe.000001  (sw-core-1, class 6)
       server1 enp23s0f2          SLAVE, offset -3 ns, path delay 9 ns, 1 step(s)
       server4 enp101s0f1         SLAVE, offset -2 ns, path delay 120 ns, 1 step(s)
-  grandmaster 008015.fffe.4290d0  (class 6)
+  grandmaster 02aabb.fffe.000002  (class 6)
       server3 enp23s0f0          SLAVE, offset +3 ns, path delay 21 ns, 1 step(s)
   island: server1 enp23s0f0 is the grandmaster of its own segment
       server2 enp101s0f3         SLAVE, offset +1 ns, path delay 72 ns
@@ -852,7 +1294,7 @@ and no agent - only the two files. Exit code is 0 when nothing changed and 1
 when something did, so it can sit in a loop and only speak up when it matters.
 
 **Matching is the whole problem.** A node id is derived from whatever identity
-was known at the time, so the same switch can be `chassis:00:05:80:...` in one
+was known at the time, so the same switch can be `chassis:aa:bb:cc:...` in one
 file and `ip:198.51.100.1` in the next. Devices are matched on the identities
 they carry, strongest first - chassis, serial, management address, name - so a
 device renamed or readdressed between scans is still the same device. Anything
@@ -870,6 +1312,849 @@ MTU-clean on Monday and is not on Tuesday says so by name.
 
 ---
 
+## 6c2. The rack PDU, and which socket feeds what
+
+A network map answers which switch port a machine is in. It has nothing to
+say about which socket powers it, and that is the question asked when a rack
+has to come down, or when a server is dead and nobody knows whether it has
+power at all.
+
+An APC network management card answers both halves:
+
+```
+[AP7921B]      pdu 198.51.100.116, scanned
+               made by APC by Schneider Electric (MAC prefix (IEEE))
+               serial ZZ0000000000
+[Power]        AP7921B   serial ZZ0000000000
+               up for 201 Days 1 Hour 47 Minutes
+               8 outlet(s), 8 on
+               1   rack A top shelf                   On
+               3   timing source 198.51.100.11        On
+```
+
+The outlet names are whatever somebody typed when the rack was built. They
+are labels and not hostnames, they are printed exactly as written, and on
+most benches they are the only record of the wiring there is.
+
+**It is recognised before anything logs in.** The card answers on port 22 and
+then has no shell at all - hand it a command the ordinary way and it returns
+nothing and closes the session, which is why a plain SSH probe reported a
+device that logged in and said nothing. Its SSH server names the library it
+is built on (`SSH-2.0-cryptlib`), which no general-purpose machine does, so
+one connection and no login is enough to know to speak to it differently.
+
+**Nothing is switched.** The commands that could turn an outlet on or off are
+not sent, and are not in the tool at all. It reads `about`, `netstat` and
+`olStatus`.
+
+The model, serial and hardware address make it a device like any other: it
+goes on the map, it is held against NetBox, and the switch that learned its
+address can place it in a port.
+
+## 6d. Handsets, and what else is plugged in
+
+A lab machine has a second fan-out that no network protocol will ever tell you
+about: the phones, console cables and adapters on its USB ports. When a test
+fails the question is rarely "is the NUC up" - it is "is UE 3 still attached,
+and to which port". So those are drawn on the map too.
+
+### Two layers, and why only one of them is opt-in
+
+Reading the USB tree is free and changes nothing, so it always runs:
+
+- **Linux** - the files under `/sys/bus/usb/devices`. Each device publishes its
+  maker, product, serial, the USB version it declares and the rate it actually
+  negotiated. Hubs and interface entries are skipped: a hub is wiring, and
+  listing a phone's four interfaces would turn one handset into four nodes.
+- **Windows** - the PnP registry over SSH. Windows publishes no speed for a USB
+  device, but it does publish the port: a location path ending `ACPI(SSnn)` is a
+  SuperSpeed port and `ACPI(HSnn)` a high-speed one, which is the generation of
+  the connection and therefore the thing being asked about.
+
+Asking **adb** is a separate choice - `--adb` on the command line, *name
+handsets over adb* in the window. It is off by default because running `adb`
+may start an adb server on that host, and a server that was not running before
+is a change. When it is on, the tool runs exactly two kinds of command:
+`adb devices -l`, and `adb -s <serial> shell getprop` to read the model and the
+Android version. It never pushes, installs, reboots or sets anything.
+
+### What ends up on the map
+
+Each thing on the bus becomes its own node, joined to its host by a link marked
+`usb`. The link is coloured by generation, and that is the whole message:
+
+| Generation | Colour |
+| ---------- | ------ |
+| USB 3 | blue |
+| USB 2 | black |
+| USB 1 | plain grey |
+
+Rates are not printed. The useful question is which generation a device came up
+as, not whether it negotiated 480 or 12 Mbit/s. The one warning raised is a
+device that *declares* USB 3 and came up as USB 2 - almost always the cable or
+the port, and worth a look. A device that declares USB 2 is not warned about:
+an FTDI console cable declares 2.00 and is a UART, not a slow phone, and is
+classified as a console cable rather than a handset for exactly that reason.
+
+Four identical phones on one NUC is normal, so a model name that repeats on a
+host carries its serial - `ONEPLUS A5000 (70b02c75)` - while a name nobody
+else shares is left alone.
+
+A USB link is *reported*, not *confirmed*: the host enumerated the device on its
+own bus, which is a reading rather than a guess, but only the host said it. See
+**Link confidence**.
+
+### Losing the host is not losing the phones
+
+This matters enough to be a rule. If a NUC cannot be polled, its handsets are
+recorded as `UNKNOWN` - not as unplugged. "Twenty phones disconnected" and "one
+NUC stopped answering" are very different mornings, and only one of them is
+true. In the run record (see **What changed since last time**) that becomes a
+single line naming the host, with a count of what went out of sight with it.
+
+The reverse case is reported properly: if the host answered and a handset is no
+longer on its bus, it really was unplugged, and it is reported as such. A phone
+that is still on the bus but that adb may not talk to - `unauthorized`,
+`offline` - is degraded, not gone, and the line says which of the two it is.
+
+## 6e0. The management controller, and whether it answers
+
+A server's BMC has its own address, and nobody can see it from outside until
+they already know it. The host can: `ipmitool lan print` asks the controller
+over the internal channel, with no network in the way and no password to hold.
+It is read on every Linux host that has `ipmitool`, and a host without it says
+so rather than leaving a blank.
+
+```
+IPMI/BMC address
+  192.0.2.17     static, channel default
+                 the host it lives in CANNOT reach it
+                 other-server has it in its neighbour cache, so it is alive
+                 hardware address 00:00:5e:00:53:1c
+```
+
+Three facts, each worth something different:
+
+| What | Why it matters |
+|---|---|
+| **the address** | how you reach a machine that will not boot |
+| **static or DHCP** | a static address that answers to nobody is a different fault from a DHCP one |
+| **whether it answers** | the day you need the controller is the day you find out |
+
+### Who did the asking
+
+A controller usually sits on a management network the host itself is not on,
+so the host failing to ping it proves very little. Saying *"nothing is there"*
+on that evidence sends somebody to a rack for no reason.
+
+So the sentence names who tried, and then the map is asked: if any other
+machine on it holds that address in its neighbour cache, the controller is
+alive and the report says so. Measured on a live server - the host could not
+reach its own BMC, and a machine already on the map had the address the whole
+time.
+
+### Against NetBox
+
+Where the inventory has an IPMI interface for the device, the two are compared:
+
+```
+NetBox records the same address
+NetBox records 192.0.2.99 on its IPMI interface - these disagree
+NetBox holds no IPMI address for this device - 192.0.2.17 is what it would be
+```
+
+**Nothing is written to NetBox.** An empty record is offered the address as
+text, for a person to paste. Creating and correcting records is somebody's
+job, and it is not this tool's.
+
+## 6e. The serial number, and which physical box this is
+
+A map that cannot say which physical unit a node is cannot be compared with an
+inventory - and an inventory is keyed by serial, not by hostname or address. So
+every access path is asked for it, each in its own language, and the answers
+land in one field.
+
+| Device | Where the serial comes from |
+| ------ | --------------------------- |
+| Linux  | SMBIOS - `/sys/class/dmi/id/product_serial`, falling back to the chassis then the board |
+| Windows | `Win32_BIOS.SerialNumber` over the SSH session already open |
+| ESXi   | `esxcli hardware platform get` |
+| BMC    | Redfish `SerialNumber` on the Chassis, then the System |
+| Switch | SNMP ENTITY-MIB `entPhysicalSerialNum`, taking the chassis entry |
+
+Measured on real machines rather than assumed: a Dell desktop, two Supermicro
+servers, a Windows NUC, a FibroLAN-class switch over SNMP and a Supermicro BMC
+over Redfish all answered with a real serial.
+
+### A placeholder is not a serial
+
+Boards ship with `To Be Filled By O.E.M.`, `Default string`, `Not Specified`,
+`System Serial Number`, `0123456789`. Accepting those would be worse than
+having nothing: every machine of that model carries the same text, so they
+would all merge into one device on the map. Anything on that list is refused,
+and the device is reported as publishing no serial rather than given a fake
+one. The model and the maker are still kept - those are worth knowing even
+where the serial is missing.
+
+The order is deliberate. `product_serial` is the unit as sold. On a whitebox it
+is often a placeholder while the **board** serial is real, so the chassis and
+the board are read in the same breath and used in that order. `product_serial`
+is root-only on many kernels, which is the other reason all three are read.
+
+### What it is used for
+
+- **Identity.** Two machines of one model with one hostname stay two devices,
+  and one box that answers under two chassis MACs is folded into one. The
+  serial is a stronger key than either.
+- **Finding a device.** It is on the **go to** line and in the filter, so a
+  number read off a label or pasted out of an inventory lands on the device.
+  The filter folds case, so it does not matter how the label is printed.
+- **Comparing with a record of what should be there.** This is what makes a
+  NetBox comparison possible later; that is not built yet.
+
+Nothing extra is sent to reach any of this: these are reads over connections
+the probes have already opened.
+
+## 6f. NetBox: what should be there, next to what is
+
+An inventory is a record of intent - somebody wrote down which box sits where
+and what it is for. A scan is a record of fact. Neither is authoritative alone;
+the useful output is where the two disagree.
+
+```bash
+linkfinder --topology 198.51.100.1 -u root -p secret --netbox \
+    --setup-tag dio --topology-json site.topology.json
+```
+
+The address and token come from `--netbox-url` / `--netbox-token`, else
+`LINKFINDER_NETBOX_URL` / `LINKFINDER_NETBOX_TOKEN`, else the defaults file.
+Nothing is hard-coded. The window has a **NetBox** tick that does the same.
+
+**It reads. It does not write.** There is no code path in LinkFinder that
+POSTs, PATCHes or DELETEs anything in NetBox, and the tests check that. The
+corrections it finds are written to a file for a person to apply.
+
+### The token, which catches everyone once
+
+NetBox 4.5 issues **version 2** tokens, and they are two halves: a **key** that
+stays visible on the token page and a **secret** shown only once when it is
+created. The header wants both:
+
+```
+Authorization: Bearer nbt_<key>.<secret>
+```
+
+An older NetBox issues a version 1 token - 40 hexadecimal characters, no key -
+and that one wants `Authorization: Token <token>` instead. The tool picks the
+header from the shape of what you gave it, so either kind works without being
+told which it is. Checked against the NetBox documentation on 11 Oct 2026: v1
+tokens are deprecated as of NetBox 4.6 and are removed in 5.0, so a site still
+using one has an upgrade to plan rather than a setting to change.
+
+Sending the secret alone answers `403 {"detail":"Invalid v1 token"}`, which
+reads like a wrong token and is really half of a right one. The tool says so in
+those words before it tries. Note `/api/status/` answers with no token at all,
+so a 200 from it proves nothing.
+
+### What identifies a device
+
+In the order it is trusted. Measured on a real estate of 10 415 devices, where
+10 345 carry a serial and only 2 610 have a management address on record:
+
+| Signal | Settles it? |
+| ------ | ----------- |
+| a link you confirmed earlier | yes |
+| its **serial** | yes |
+| its serial inside the NetBox device name (`bench-b-SN0000000X...`) | yes |
+| a MAC | helps, but asks for confirmation on its own |
+| an address | **a hint only** |
+| a hostname | **a hint only** |
+
+An address says what answers there today - which is exactly why a swapped box
+is detectable, and exactly why it cannot prove identity. A device found only by
+hints is reported as `NOT_VERIFIED` and flagged for a person to confirm; it is
+never moved into somebody's Setup on that basis. Two records answering to one
+device is a `CONFLICT`, not a coin toss.
+
+MAC is used when it happens to be there and is never required: in this estate
+about one NetBox interface in a hundred carries one.
+
+### The five verdicts
+
+| It says | When |
+| ------- | ---- |
+| `CONFLICT` | more than one NetBox record answers to this device |
+| `MISMATCH` | they disagree about something checkable - a swapped serial, an address, a status |
+| `MISSING_IN_NETBOX` | we read a serial NetBox has never heard of |
+| `NOT_VERIFIED` | not enough to go on, or only hints matched |
+| `MATCH` | everything checkable agrees |
+
+Worst first, each with its evidence and a confidence. A device nobody could
+reach is left out entirely: failing to get in says nothing about whether the
+documentation is right. Things an inventory would not hold - a BMC's virtual
+keyboard, a console lead - are not judged at all.
+
+Interface and cable records are **not** compared, and that is a measurement
+rather than a shortcut. A server's own ports cannot be lined up with NetBox:
+barely one interface in a hundred carries a MAC, and about one name in a
+thousand looks like an OS name - NetBox holds human labels like
+`interface13.1`. Switch ports are closer but still not equal: the switch is
+often in NetBox under the same name, yet LLDP reports `1/1/13` where NetBox
+says `Port13`. The relationship is regular enough to guess at, which is exactly
+why it is left to a person to confirm instead.
+
+### An address NetBox never recorded is a gap, not a contradiction
+
+A server here commonly has one address on record and it is the BMC's, on an
+interface called `IPMI`. Comparing what answered against NetBox's primary
+address therefore accused the documentation of being wrong when it was merely
+incomplete - it fired on real devices before it was fixed. Every address NetBox
+holds for a device is read, and a device is only reported when the address it
+answered on is among **none** of them, as `MISSING_IN_NETBOX`, saying what
+NetBox does hold and on which port.
+
+### NetBox is optional
+
+Everything above is opt-in and nothing else depends on it. Without `--netbox`
+no NetBox code runs at all; the HTTP library is imported only when a request is
+actually made, so a machine without it still runs the whole tool. With
+`--netbox` on and nothing configured, or with NetBox unreachable, the run says
+so in one line and carries on - the map is identical either way. Setups keep
+working without NetBox, because they are remembered locally as well.
+
+Proven by running the same scan three ways - no NetBox, NetBox asked for but
+not configured, and NetBox pointed at a dead address - and comparing the maps:
+6 devices and 5 links in all three, with the same setups.
+
+### A Setup is a tag somebody named
+
+Benches live in NetBox as tags. But this estate has 985 tags and 952 of them
+are in use - teams, programmes, projects and benches all mixed together, with
+nothing in the data telling them apart. So **nothing is a Setup until you say
+it is**: `--setup-tag dio`, repeatable, or `netbox.setup_tags` in the defaults
+file, or the **Setup tags...** button in the window.
+
+`--netbox-tags` lists the tags carried by the devices this scan matched - a
+handful rather than the estate's hundreds - so there is a short list to choose
+from. A name you marked by hand on the map is kept beside the ones that came
+from NetBox.
+
+### Shared kit joins the bench it serves
+
+Pick a Setup on the map and you get its devices **and** the switch they hang
+off, even though that switch belongs to no Setup - a picture of a bench without
+its uplink is not a picture of how anything is connected. The rule is one hop
+out, and only to devices that are in no Setup at all: a neighbour that belongs
+to a different bench is somebody else's and stays out. Borrowed kit is drawn
+with a dashed outline.
+
+## 6f0. The map in your browser
+
+This is where the work happens. The window scans; the picture is where you
+look at what came back and tell the tool what it is looking at.
+
+### What you are looking at
+
+Every box is a device and every line is a link that was actually found. A
+line carries the port it uses on both ends, which is the question the tool
+exists to answer. Colour says what kind of thing it is; a dashed line means
+the link was inferred rather than reported by both ends.
+
+Click a device and the panel on the right says what is worth knowing about
+it: what it is, its serial, its timing, the temperature of its cards and
+which ports they are on, its optics, and the address it answers on. Nothing
+that merely explains an absence is printed - if there is no "How to reach
+it", there is no way in, and a paragraph saying so would help nobody.
+
+### Live or saved
+
+The map is **live** while the window that opened it is open. Live means it
+can change things: a setup you type is written the moment you type it.
+
+A page you saved to a file is a **viewer**. It draws, filters, searches and
+prints, and it cannot mark anything - there is nothing listening. The
+marking controls are not shown rather than shown and broken, and the page
+reaches nothing on the network, so it opens from a memory stick on a machine
+with no connection at all.
+
+### The answers are files, not a panel
+
+There used to be a strip of buttons along the top - what NetBox does not
+know, what moved since last time, what does not add up. Each opened a list
+over the map. The panel sat between the reader and the picture, the answers
+were gone the moment the tab closed, and nothing was there at all unless
+somebody thought to press a button.
+
+A table is the right shape for all three. It sorts, it filters, it goes in a
+ticket, and it is still there tomorrow. So they are worked out every time a
+map is drawn and written beside it:
+
+| File | What is in it |
+|---|---|
+| `<map>.csv` | one row per link: device, serial, setups, local port, far end |
+| `<map>.netbox.csv` | every disagreement between the scan and the inventory |
+| `<map>.moved.csv` | what changed against the previous map |
+| `<map>.odd.csv` | what does not add up on the map's own terms |
+
+A question that was not asked gets no file. An empty `netbox.csv` beside the
+map would say NetBox agreed about everything, when nobody asked it anything.
+
+**`<map>.netbox.csv` is the one people are sent to find**, so it is laid out
+to be read across rather than down:
+
+| verdict | device | field | on the network | in NetBox |
+|---|---|---|---|---|
+| MISMATCH | core-a | serial | 230317243800564 | 23081601 |
+| MISSING_IN_NETBOX | iper-a | ip_address | 192.0.2.14 | 192.0.2.114 |
+| NOT_VERIFIED | vm-a | | | nothing to look it up by |
+| MATCH | sw-one | | | agrees |
+
+The two sides used to be one sentence - *"it holds serial X, but NetBox
+records Y there"* - which reads well and compares badly. Both values were
+always kept separately, so putting them in their own columns costs nothing
+and a roomful of people can scan it.
+
+`NOT_VERIFIED` matters as much as the disagreements: it says the device
+published nothing to look it up by, which is not the same as agreeing.
+
+**Finding them.** `File` → `Show the files it wrote` opens the folder with
+the NetBox table already selected. The path has always been announced in the
+log, and the log is a tab nobody has open - during a demonstration the
+question "where is the comparison with NetBox?" was asked about a file that
+had been sitting there, correct, for an hour.
+
+**Handing it to somebody.** `File` → `Save what NetBox does not agree with...`
+writes that table wherever you want it. If the run did not ask NetBox, this
+asks it now rather than refusing, and with nothing scanned at all it says so
+instead of writing an empty table - a file reporting that NetBox disagreed
+about nothing, when NetBox was never asked, is worse than no file.
+
+What stayed on the picture is what only works there: marking setups, which
+is done by selecting devices and typing a name, and searching. Choosing
+which NetBox tags name a Setup is back in the window, under
+**Advanced -> NetBox -> Setup tags...**
+
+### Finding things
+
+The search box matches what a device **is** - its name, address, serial or
+kind - and not everything it has ever heard of, so searching for a switch
+finds the switch rather than every host that mentioned it.
+
+The setup filter shows one bench at a time. A device that serves several
+benches - a shared uplink - stays visible in each of them, because hiding it
+would be a lie about the picture.
+
+### Marking a setup
+
+Click a device, type the bench name in the panel, press Add. That is the
+whole thing, and it is written immediately - there is no save step and no
+file to import afterwards.
+
+For more than two or three devices, use **Mark a whole bench** instead: a
+bench usually arrives as a list of addresses in a ticket, and pasting a list
+is one action where clicking twelve devices is twelve chances to miss one.
+
+### Printing it
+
+The browser's own print works. The navigation and the strips are hidden, the
+picture and the panel are not.
+
+## 6g. Marking a setup on the map
+
+The map is where the benches are visible, so it is where they are marked - and
+the window writes the change the moment you make it.
+
+Press **Open map** in the window. It serves the map to your browser and answers
+it for as long as the window is open. Click a device and its panel has a
+**Setup** section: the names it is already in, as chips you can take off, and a
+box to add another. For several at once, tick **mark setups**, drag a box round
+them, and the strip adds or removes a name for the lot.
+
+There is nothing to save. No download, no file to find, no import, and no
+question when you close the tab. The line under the strip says `saved` when the
+change has been written, and says so plainly if it has not - a failure is never
+dressed up as a success.
+
+A setup is remembered against the device's **serial** first, then its chassis
+id, then its address, so a machine that changed address keeps its bench.
+
+### What the server is, and what it is not
+
+It binds to `127.0.0.1` on a port the operating system picks, carries a
+one-time token in its own address, and refuses anything that does not have it -
+a wrong token looks exactly like a wrong path. It answers four things: the map,
+the current setups, a setup change, and the list of what NetBox does not know.
+It reads no files, takes no names from a request, sets no cookies and sends no
+CORS headers, so no other page on your machine can talk to it. It starts when
+you press **Open map** and dies with the window.
+
+### A saved copy is a viewer
+
+Open a `.html` file you saved earlier and it works exactly as it always did -
+offline, with no server and nothing to install - but it cannot mark anything,
+and the marking controls are not shown at all. That is the honest state of
+affairs: a page opened from disk cannot write to disk. Pretending otherwise is
+what produced files nobody wanted.
+
+### Opening a shell from the map
+
+Clicking a device offers `ssh://<address>`. A page cannot start a session
+itself; it hands the address to whatever the machine registered for that
+scheme. When nothing is registered the click would normally do nothing at all,
+so the page notices and says so, with the command to run and what to install.
+The window has its own SSH button that opens a session in-process and uses
+everything in Advanced - per-host login, key file, spare logins and the port.
+
+### What to add in NetBox
+
+**What to add in NetBox** in the window collects the devices and setups NetBox
+does not know about, shows them, and offers to write them out for whoever has
+the rights to apply them. It is produced when you ask for it rather than
+appearing after every change, and nothing is sent anywhere.
+
+## 6j2. One answer for the team, not one per laptop
+
+By default everything the tool remembers - which bench a device is on, the
+maps it keeps - lives in your home folder. That is right for one person and
+wrong for a team: two engineers scan the same bench and get two different
+answers, with nothing to say why.
+
+Point it at a folder everybody can reach:
+
+```
+linkfinder --shared //fileserver/lab/linkfinder ...
+```
+
+or set it once, in the defaults file, and everything agrees from then on:
+
+```json
+{ "shared": "//fileserver/lab/linkfinder" }
+```
+
+A UNC path works too; in JSON its backslashes have to be doubled, which is
+why the forward-slash form above is the easier one to type.
+
+### How it avoids the usual trouble
+
+| Worry | What is actually done |
+|---|---|
+| two people writing at once | **each person writes only their own file** and reads everybody's, so there is no lock and no last-writer-wins |
+| the share blinks mid-write | written through a temporary file and renamed, so the old one survives whole |
+| the share is down | falls back to this machine and **says so** - a scan is never blocked |
+| whose mark is this? | `--where` names everyone marking in that folder |
+| marks made before sharing | carried into your file on the first run, and the private copy is kept, renamed, not deleted |
+
+The layout is plain files, so it can be read, backed up or put in version
+control by anyone:
+
+```
+<shared>/setups/<user>@<host>.json
+<shared>/history/<when>-<user>.json
+```
+
+A device two people put in different setups ends up in both. That is not a
+conflict to resolve: a shared uplink really does serve several benches, and
+the model has always allowed a list. `who_says` on the panel names who put it
+there, so a genuine disagreement is visible rather than merged away silently.
+
+### Say where things are
+
+```
+linkfinder --where
+```
+
+```
+settings and logins   C:\Users\you\.linkfinder.json
+passwords             Windows DPAPI, keyed to you
+setups                //fileserver/lab/linkfinder/setups/you@your-pc.json
+maps it remembers     //fileserver/lab/linkfinder/history (6 kept)
+switches it learned   C:\Users\you\.linkfinder-switches.json
+
+setups and kept maps are shared, in //fileserver/lab/linkfinder, as you@your-pc
+marking here as well: olga@bench2
+```
+
+The window writes the same line into its log when it opens, and the map shows
+it under the NetBox strip.
+
+> Silence about this was the actual fault. A mark private to one laptop and a
+> mark the whole team shares looked identical, so nobody could tell which they
+> had.
+
+## 6m. A range of addresses
+
+A bench is held as "the .74 network" or ".200 to .210", not as a list. All
+three ways a person writes that are taken, anywhere a target is taken:
+
+```
+linkfinder --targets 10.0.0.0/24
+linkfinder --targets 10.0.0.5-10.0.0.40
+linkfinder --targets 10.0.0.5-40            the same, written short
+```
+
+Nothing is swept silently. A range larger than 1024 addresses is refused
+with the number, because a typo that starts sixty-five thousand login
+attempts is a tool nobody is allowed to run twice:
+
+```
+10.0.0.0/16 holds 65536 addresses - more than the 1024 this will sweep. Narrow it
+10.0.0.8-10.0.0.5 runs backwards - put the lower address first
+```
+
+Ranges open out before anything else looks at them, so they work the same
+for one device, for a map, and together with the NetBox lookup below.
+
+## 6n. Looking something up in NetBox
+
+You hold a bench name or a number off a label, not an address.
+
+```
+linkfinder --netbox-find bench-a
+linkfinder --netbox-find SN0000000X5304276
+```
+
+It tries the serial, the asset tag, the device name and the tag, and says
+which one landed. On the map the same thing is the **look one up** drawer
+behind the NetBox door.
+
+### Letting NetBox say where to scan
+
+```
+linkfinder --from-netbox bench-a --topology-json bench.json
+```
+
+The addresses NetBox holds for that bench become the scan's targets, and
+the map is drawn from what is actually there. Where the inventory is thin
+it says so rather than looking thorough:
+
+```
+from netbox: 10 record(s) carry 'bench-a', but an address is recorded for
+only 1 of them - the rest cannot be scanned until somebody adds one
+```
+
+That sentence is the useful half of the answer: it names a gap somebody
+can close, instead of reporting a bench of one device.
+
+## 6o. What does not add up
+
+Four things a network does that no single device will admit to:
+
+| What | How it is seen |
+|---|---|
+| **one address, two owners** | two machines on the segment learned different hardware addresses for it |
+| **one MAC in two places** | the same hardware address turns up on two ports |
+| **a ring in the cabling** | a cycle in the discovered topology, with whether spanning tree is holding it open |
+| **a cable whose ends disagree** | MTU, VLAN, speed or LACP read differently at each end |
+
+```
+linkfinder --map bench.json --suspicious
+```
+
+On the map this is written to `<map>.odd.csv`, and each finding
+can point at the devices it concerns.
+
+Nothing here decides anything. Every one of these can be innocent - a
+gateway answering for a subnet looks exactly like a stolen address until
+somebody who knows the bench looks at it - so each finding carries what was
+seen and how sure it is.
+
+> A check that breaks never reports a clean network. If one of the four
+> cannot run, it says so as a finding marked `UNCLEAR`, because the one
+> thing worse than a missed fault is a false all-clear.
+
+## 6k. Marking a whole bench at once
+
+Nothing here starts from a blank file. Ask for the sheet and it comes back
+filled in - every device the map knows, with its setup already in the first
+column:
+
+```
+linkfinder --setup-sheet setups.csv
+```
+
+```
+setup,device,serial,address,kind,state,key (do not edit)
+bench 1,server-a,S907083X6310614,10.0.0.5,host,scanned,ip:10.0.0.5
+,radio-1,,169.254.15.16,radio,unscanned,chassis:2c:a5:39:00:14:01
+```
+
+Open it in Excel, type a setup next to the rows that need one, save, and hand
+it back:
+
+```
+linkfinder --mark-list setups.csv
+```
+
+**What is in the sheet is what you get.** A name typed in puts the device in
+that setup; a cell cleared takes it out; a row left alone stays as it was.
+Several setups on one device are separated by commas. The last column is how
+a device is recognised even after it is renamed - leave it alone.
+
+In the window it is the **Setups...** button: it asks whether you are saving
+a sheet or loading one, and does the rest. On the map it is **Mark a whole
+bench**, which offers the same sheet and takes it pasted straight back.
+
+### Or just a list
+
+When the bench is only a few devices and they are all going in one setup, a
+plain list is enough:
+
+```
+linkfinder --mark-setup "bench 7" --mark-list bench.txt
+```
+
+```
+# one per line; anything after # is ignored
+10.0.0.5
+S907083X6310614
+2c:a5:39:00:14:01
+some-device-name
+```
+
+Any of four things identifies a device: a **management address**, a **serial
+number**, a **chassis MAC** or the **name it announces**. They can be mixed in
+one file, and two lines naming the same device mark it once.
+
+A line that matches nothing in the map is **reported back, never guessed at**:
+
+```
+marked 4 device(s) in bench 7 (from the newest map kept)
+   server-a
+   radio-1
+not recognised in that map, so not marked:
+   10.9.9.9
+```
+
+With no `--map` it works on the newest map the tool kept, so there is nothing
+to find on disk. `--mark-setup ""` takes the listed devices out of every setup.
+
+On the map the same thing is **Mark a whole bench**: paste the list, name the
+setup, apply.
+
+The marks are remembered by serial, MAC and address, so they survive the next
+scan - including a device that changed address.
+
+## 6l. One bench, both ways
+
+The ordinary NetBox comparison runs outwards from the scan, so it can only
+report on devices that answered. The question it cannot answer is the one
+people actually ask: *the inventory says this bench has ten devices - does
+it?*
+
+```
+linkfinder --setup-diff bench-a --setup-diff-csv bench-a.csv
+```
+
+```
+bench-a: 2 in both, 8 only in netbox, 3 only here, 1 to confirm
+  IN BOTH         5G AMD SERVER (Multi)      server-a        the serial number
+  IN BOTH         MM-0-n78LC-00              Integrity-MM..  one name ends with the other
+  ONLY IN NETBOX  Vaunix attenuator                          nothing answering to this was found
+  ONLY HERE                                  radio-4         not recorded under this setup
+```
+
+Three verdicts, and the useful ones are the last two. A bench of three devices
+gives a dozen rows, not a page of search results.
+
+How a record and a device are paired, strongest first:
+
+| Signal | Settles it? |
+|---|---|
+| the serial numbers are equal | yes |
+| the serial appears inside the other's name | yes |
+| the names are equal | only with something else agreeing |
+| an address is held by both | only with something else agreeing |
+| one name ends with the other (`MM-0-n78LC-00` inside `Integrity-MM-0-n78LC-00`) | no - marked **needs a look** |
+
+Strong evidence is always matched first, so a name that merely rhymes can
+never take a device away from the record whose serial proves it.
+
+`--setup-diff` is repeatable, and `--setup-diff-csv` writes every bench asked
+about into one spreadsheet. Excel opens it directly.
+
+On the map it is **Compare a bench with NetBox**.
+
+## 6h. Which switch port is which, against NetBox
+
+LLDP says `1/1/49`. NetBox says `Port49`. They are the same hole in the same
+box, but nothing in either name proves it, and guessing is how somebody ends
+up unplugging the wrong cable.
+
+So the tool proposes and shows its working, and **nothing uses the proposal
+until a person has confirmed it**:
+
+```
+linkfinder <hosts> --netbox --switch-ports
+```
+
+```
+Switch ports, scan against NetBox:
+  rack-sw-7          1/1/12 = port12, 1/1/13 = port13
+      every port the scan saw lands on exactly one record, covers 51 port(s)
+```
+
+The rule is **per switch**, not per port: one confirmation settles every port
+on it, which is why being certain costs a single yes rather than fifty-two.
+
+```
+linkfinder <hosts> --netbox --confirm-switch-ports rack-sw-7
+linkfinder <hosts> --netbox --confirm-switch-ports "*"     # every certain one
+```
+
+On the map the same thing is a button, **Which switch port is which**, with a
+Yes beside each switch. Confirmations are kept in the defaults file under
+`switch_ports` and apply to every later scan.
+
+A switch that is not in NetBox under the name it announces is reported as
+exactly that. It is a finding about the documentation, not a failure.
+
+## 6i. What moved since last time
+
+A cable that moved is invisible in any single scan: the map looks perfectly
+reasonable, it is simply not last week's. Answering that needs an earlier map,
+so the tool keeps its own.
+
+Every map it draws is kept under `~/.linkfinder-history`, newest twenty, and
+an empty or interrupted map is never kept - it must not become the thing a
+later scan is judged against.
+
+```
+linkfinder --topology 10.0.0.1 -u root -p secret --since-last
+```
+
+```
+Since the last map (1 device added, 1 device changed, 1 link added):
+  device added     rack-sw-9    switch
+  link added       core-sw 21 - rack-sw-9 1/1/35
+```
+
+Beside the map it is `<map>.moved.csv`. The first scan
+says plainly that there is nothing to compare against yet, rather than
+pretending nothing changed.
+
+Set `LINKFINDER_HISTORY` to keep the maps somewhere else.
+
+## 6j. The map as a table
+
+The picture answers "how is this connected". A table answers "how many are
+there and where", and it is what a spreadsheet, a report or a colleague
+outside the team can actually use.
+
+```
+linkfinder --topology 10.0.0.1 -u root -p secret --topology-csv site.csv
+linkfinder <hosts> --csv scan.csv
+```
+
+One row per link, carrying the device, its serial, the setups it belongs to,
+the local port, what is on the other end and which port that is. In the window
+it is the **Export...** button; on the map, **Download this map as a table**.
+
+You do not have to ask for it. Every walk writes the table, the data and the
+page side by side under the same name and says where all three went. The page
+is for looking at; the other two are what the work is actually done with, and
+needing a dialog to reach them was a step with no purpose. **Save...** still
+puts a copy wherever you want, and offers the table first for the same reason.
+
 ## 7. File formats
 
 ### Topology JSON
@@ -883,11 +2168,11 @@ MTU-clean on Monday and is not on Tuesday says so by name.
   "stopped_because": "depth limit reached (2)",
   "nodes": [
     {
-      "id": "chassis:00:05:80:08:3e:bf",
+      "id": "chassis:aa:bb:cc:dd:ee:01",
       "kind": "switch",
       "name": "sw-lab-1",
-      "chassis_id": "00:05:80:08:3e:bf",
-      "chassis_id_raw": "00-05-80-08-3E-BF",
+      "chassis_id": "aa:bb:cc:dd:ee:01",
+      "chassis_id_raw": "AA-BB-CC-DD-EE-01",
       "mgmt_ips": ["10.0.0.30"],
       "vendor": "ExampleNOS 1.2.3",
       "state": "scanned",
@@ -989,7 +2274,7 @@ run time. Three files can hold real values, all outside the repository and all i
   "switch_password": "...",
   "creds": [
     {"user": "admin", "password": "..."},
-    {"user": "bbuadmin", "password": "..."}
+    {"user": "siteadmin", "password": "..."}
   ]
 }
 ```
@@ -999,6 +2284,26 @@ run time. Three files can hold real values, all outside the repository and all i
 over the environment, which wins over the file.
 
 Nothing is ever sent anywhere. The tool only talks to the targets you name.
+
+### A remembered password is not kept in the file
+
+A per-host password the tool saves for you goes to the store the operating
+system already runs, and the file keeps only a handle to it:
+
+| System | Where the password actually lives |
+|---|---|
+| Windows | DPAPI, keyed to your account. Another account cannot read it, and a tampered blob is refused rather than returned as rubbish |
+| macOS | the login keychain |
+| Linux with a session keyring | the Secret Service, through `secret-tool` |
+| anything else, a server typically | **nowhere** - it is not saved, and the tool says so |
+
+That last row is deliberate. Encrypting a file with a key that ships beside it
+is obfuscation: it would read as protection in an audit and stop nobody. Where
+there is no store, pass the password each run or use an SSH key.
+
+A file written before this existed still works. The first run moves any
+plaintext password into the store and takes the clear copy out of the file,
+and says which hosts it moved.
 
 ---
 
@@ -1031,9 +2336,9 @@ TARGET         LOCAL PORT      SWITCH    SWITCH PORT            SWITCH IP     VL
 ```
 DEPTH  DEVICE       KIND    STATE         MANAGEMENT IP  CHASSIS
 0      delta        host    scanned       10.0.0.27      -
-1      sw-lab-1     switch  scanned       10.0.0.30      00:05:80:08:3e:bf
-1      sw-edge      switch  out-of-scope  10.9.94.1      04:f4:1c:eb:06:4d
-2      sw-access-1  switch  unscanned     -              ec:50:aa:1f:ec:80
+1      sw-lab-1     switch  scanned       10.0.0.30      aa:bb:cc:dd:ee:01
+1      sw-edge      switch  out-of-scope  10.9.94.1      aa:bb:cc:dd:ee:02
+2      sw-access-1  switch  unscanned     -              aa:bb:cc:dd:ee:03
 ```
 
 Followed by a one-line summary and, when the walk was cut short, the reason.

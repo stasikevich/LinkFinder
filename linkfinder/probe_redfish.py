@@ -322,6 +322,9 @@ def probe_redfish(host: str, user: str, password: str, result: TargetResult,
     result.kind = "bmc:%s" % vendor
     say("  Redfish %s, vendor %s" % (root.get("RedfishVersion", "?"), vendor))
 
+    from . import hardware
+    hardware.attach(result, hardware.read_redfish(rf), say)
+
     if allow_enable:
         try:
             enable_lldp(rf, vendor, say)

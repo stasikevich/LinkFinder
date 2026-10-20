@@ -37,6 +37,12 @@ def cycles(topology, limit: int = MAX_CYCLES) -> List[List[str]]:
     """
     adjacency: Dict[str, List[Tuple[str, str]]] = {}
     for edge in topology.edges.values():
+        # A cable from a device back into itself is a real thing to draw, but
+        # it is not a redundant path between two devices, which is all a ring
+        # means here. Left in, it reads as a loop that needs breaking.
+        if edge.a == edge.b:
+            adjacency.setdefault(edge.a, [])
+            continue
         adjacency.setdefault(edge.a, []).append((edge.b, edge.id))
         adjacency.setdefault(edge.b, []).append((edge.a, edge.id))
 
@@ -104,11 +110,80 @@ def _edges_on(topology, ring: List[str]) -> List[Any]:
 
 
 def describe_ring(topology, ring: List[str]) -> str:
-    labels = []
+    """The ring as a line somebody can follow round.
+
+    Told apart by address where a name is shared: two machines really can
+    both answer to "server1", and a ring written as server1 - sw - server1
+    then reads as nonsense or, worse, as a loop that is not there.
+    """
+    from .render_topology import unique_labels
+
+    named = unique_labels([node.to_dict() for node in topology.nodes.values()])
+    labels = [named.get(node_id) or node_id for node_id in ring]
+    return " - ".join(labels + [labels[0]])
+
+
+ENDPOINT_KINDS = ("host", "bmc", "phone")
+
+
+def forwards(node) -> bool:
+    """Can this device pass a frame from one of its ports to another?
+
+    A ring only matters where traffic can go round it. A switch forwards; a
+    plain host does not - its NICs are endpoints, and a cable between two of
+    them carries nothing onward. Without this, every direct cable that also
+    has a path through a switch is reported as a ring, which on a lab with a
+    few parallel cables buries the one ring that would really hurt.
+
+    A Linux host that runs a bridge does forward, so the probe records its
+    bridges and they count.
+    """
+    if (getattr(node, "extra", {}) or {}).get("bridges"):
+        return True
+    # Refuse only where we positively know the device is an endpoint. A
+    # chassis id seen in somebody's neighbour table could be a switch we
+    # never reached, and silently dropping a ring through it would hide the
+    # one finding this check exists for.
+    return getattr(node, "kind", "") not in ENDPOINT_KINDS
+
+
+def ring_can_loop(topology, ring) -> bool:
+    """True when every device on the ring would actually pass traffic round it."""
     for node_id in ring:
         node = topology.nodes.get(node_id)
-        labels.append(node.label if node is not None else node_id)
-    return " - ".join(labels + [labels[0]])
+        if node is None or not forwards(node):
+            return False
+    return True
+
+
+def fold_same_ring(found: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """One line per ring, however many spare cables close it.
+
+    Four parallel cables between the same pair of machines make four
+    independent cycles, and the graph is right to say so. A person reading
+    it sees the same three devices listed four times and stops reading. It
+    is one ring, held shut by four cables, and that is what it should say.
+    """
+    first: Dict[str, Dict[str, Any]] = {}
+    order: List[str] = []
+    for one in found:
+        key = str(one.get("detail") or "")
+        if key not in first:
+            first[key] = dict(one)
+            first[key]["paths"] = 1
+            order.append(key)
+        else:
+            first[key]["paths"] += 1
+    out = []
+    for key in order:
+        one = first[key]
+        spare = one.pop("paths", 1)
+        if spare > 1:
+            one["detail"] = "%s - %d separate cables close it" % (key, spare)
+            one["evidence"] = list(one.get("evidence") or []) + [
+                "%d redundant paths between the same devices" % spare]
+        out.append(one)
+    return out
 
 
 def examine(topology, blocked_ports: Optional[Dict[str, List[str]]] = None,
@@ -122,7 +197,11 @@ def examine(topology, blocked_ports: Optional[Dict[str, List[str]]] = None,
     say = log or (lambda _m: None)
     blocked_ports = blocked_ports or {}
     out: List[Dict[str, Any]] = []
+    skipped = 0
     for ring in cycles(topology):
+        if not ring_can_loop(topology, ring):
+            skipped += 1
+            continue
         edges = _edges_on(topology, ring)
         holding = []
         for edge in edges:
@@ -150,8 +229,12 @@ def examine(topology, blocked_ports: Optional[Dict[str, List[str]]] = None,
             "evidence": ["ring of %d devices in the discovered topology"
                          % len(ring)],
         })
+    out = fold_same_ring(out)
     for finding in out:
         say("  loop: %s" % finding["detail"])
+    if skipped:
+        say("  %d cycle(s) pass through a device that does not forward - "
+            "not reported as rings" % skipped)
     return out
 
 
@@ -237,8 +320,20 @@ def render(rings: List[Dict[str, Any]],
     lines: List[str] = []
     if rings:
         lines.append("Rings in the topology")
+        # Parallel cables between the same two devices produce one independent
+        # cycle each, which is correct arithmetic and a useless thing to read
+        # three times. Identical wording is folded into one line with a count.
+        seen: Dict[str, int] = {}
+        order: List[str] = []
         for finding in rings:
-            lines.append("  %s" % finding["detail"])
+            detail = finding["detail"]
+            if detail not in seen:
+                order.append(detail)
+            seen[detail] = seen.get(detail, 0) + 1
+        for detail in order:
+            times = seen[detail]
+            lines.append("  %s%s" % (detail, "" if times == 1
+                                     else "  (x%d - parallel links)" % times))
     for bridge in churn or []:
         if not bridge.get("signals"):
             continue

@@ -110,6 +110,66 @@ DEVICE CHANGED:
 
 Full reference, every GUI field and every flag: **[DOCUMENTATION.md](DOCUMENTATION.md)**.
 
+## And the phones nobody else counts
+
+A lab machine has a second fan-out no network protocol will tell you about: the
+handsets, console cables and adapters on its USB ports. They go on the map as
+what they are - a USB link, never an Ethernet one - coloured by generation:
+USB 3 blue, USB 2 black, USB 1 plain.
+
+```bash
+linkfinder --topology 198.51.100.10 -u root -p secret --adb \
+    --topology-json site.topology.json --topology-html site.topology.html
+```
+
+```text
+DEPTH  DEVICE                KIND        STATE    MANAGEMENT IP
+-----  --------------------  ----------  -------  --------------
+0      nuc1                  host        scanned  198.51.100.10
+1      ONEPLUS A5000 (aaa1)  phone       scanned  -
+1      ONEPLUS A5000 (bbb2)  phone       scanned  -
+1      FT230X Basic UART     serial      scanned  -
+1      USB 10/100/1000 LAN   peripheral  scanned  -
+```
+
+Reading the bus is free and always happens. Asking `adb` for the model is
+`--adb`, and opt-in, because running it may start an adb server that was not
+there before. Four identical phones is normal, so a repeated model carries its
+serial; a console cable is told apart from a slow phone; and when a host cannot
+be reached its handsets are `UNKNOWN`, not unplugged - "twenty phones
+disconnected" and "one NUC stopped answering" are very different mornings.
+
+## And which physical box it is
+
+An inventory is keyed by serial number, not by hostname. Every access path is
+asked for one: SMBIOS on Linux, `Win32_BIOS` on Windows, `esxcli` on ESXi,
+Redfish on a BMC, ENTITY-MIB on a switch. The serial goes on the **go to** line
+and into the filter, so a number read off a label finds the device.
+
+A board that answers `To Be Filled By O.E.M.` or `Default string` is reported
+as having no serial rather than being given a fake one - accepting those would
+merge every machine of that model into a single node.
+
+## And what the inventory says should be there
+
+```bash
+linkfinder --topology 198.51.100.1 -u root -p secret --netbox --setup-tag dio
+```
+
+Looks each scanned device up in NetBox by the serial it just read and reports
+only the disagreements: a box swapped for another at a documented address, a
+device that moved, one NetBox calls retired that answered anyway, one it has
+never heard of. Five verdicts, worst first, each with its evidence - including
+`NOT_VERIFIED`, because "we could not tell" has to be sayable or every gap in
+the evidence becomes an accusation that the documentation is wrong.
+
+Setups come from the NetBox tags you name - nothing is a Setup until you say so
+- and picking one on the map shows the bench together with the shared switch it
+hangs off.
+
+**It reads and never writes.** The corrections it finds go to a file a person
+applies; creating records is IT's job, not a side effect of a scan.
+
 ## Where it came from
 
 It replaces and merges two narrower tools:
@@ -154,7 +214,82 @@ It replaces and merges two narrower tools:
 pip install -r requirements.txt     # paramiko, requests, urllib3
 ```
 
+A clone has no vendor table: `linkfinder/assets/oui.gz` is built, not kept
+in the repository. Without it the tool still works, but no device is
+attributed to a maker, and the map draws a device it could not reach as a
+question mark instead of as its hardware.
+
+```bash
+python tools/make_oui.py            # fetches the IEEE registry, writes oui.gz
+```
+
+This is the only step that touches the network. The tool itself never does.
+
 SNMP needs nothing — the SNMPv2c client is hand-rolled on the standard library.
+
+### Running it from Linux
+
+There is no installer and nothing to build. Clone the tree and run the module:
+
+```bash
+python3 -m linkfinder --help
+python3 -m linkfinder 198.51.100.10 -u root -p secret
+```
+
+Proven on Ubuntu 22.04 with the distribution Python 3.10:
+
+| Path | What it needs |
+|---|---|
+| SNMP: switch side, topology, port health, MAC lookup | **nothing** - the SNMPv2c client is written against the standard library |
+| SSH to hosts, Redfish to a BMC | `pip install paramiko requests` |
+| The window | `apt install python3-tk` (RHEL: `python3-tkinter`) |
+
+All test suites pass there, an SNMP scan resolves a MAC to a real switch port,
+and with paramiko in a virtualenv the SSH path returns PTP state, optics and
+card temperature exactly as it does on Windows.
+
+Without paramiko the SSH path does not crash: it reports
+`paramiko is not installed (pip install paramiko)`, and every SNMP path carries
+on working.
+
+`tkinter` is the one thing pip cannot supply - it ships with the distribution's
+Python, not from PyPI. **The window itself has not been run from Linux here**:
+the hosts available had no tkinter or no display. Its logic is covered by
+`tests/test_gui.py`, which drives a real window and skips cleanly where there
+is no display, but those runs were on Windows.
+
+The host's own neighbour cache is read with `ip` rather than `arp`, because
+net-tools is absent from plenty of minimal installs and containers while `ip`
+is always there. `arp` stays as the fallback for older boxes, and Windows keeps
+using it outright.
+
+#### A single-file binary, if you want one
+
+`dist/*.exe` are Windows builds and will not run on Linux. `build.sh` makes a
+Linux one:
+
+```bash
+pip install pyinstaller
+./build.sh
+./dist/linkfinder --help
+```
+
+It is the twin of `build.ps1`: the site-reference gate first, then every test
+suite, then packaging. The window is packaged only when `tkinter` imports,
+because a binary built without it would fail at the moment someone opened it.
+Without PyInstaller the script still runs every check and says plainly that
+it packaged nothing.
+
+To package by hand instead:
+
+```bash
+pyinstaller --noconfirm --onefile --name linkfinder \
+  --add-data "linkfinder/assets:linkfinder/assets" cli_entry.py
+```
+
+The separator in `--add-data` is a colon on Linux and a semicolon on Windows.
+A binary is tied to the glibc of the machine that built it, so build it on the
+oldest distribution you intend to run it on.
 
 ## Usage
 
@@ -169,7 +304,7 @@ python -m linkfinder 10.70.9.40 --bmc-user ADMIN --bmc-password secret -m bmc
 python -m linkfinder --targets-file hosts.txt -u root -p secret --csv rack.csv
 
 # something you cannot log into: ask the switches instead
-python -m linkfinder 192.168.1.13 -m switch --switch 10.70.244.30 --community public \
+python -m linkfinder 198.51.100.13 -m switch --switch 10.70.244.30 --community public \
     --mac aa:bb:cc:dd:ee:11
 
 # switch side as a cross-check on a host you CAN log into - it reads the MACs itself
@@ -282,7 +417,7 @@ route is not assumed silent on the others.
 
 That is how a switch gets named rather than printed as a number. A boundary clock
 builds its clock identity from the same chassis MAC it publishes over LLDP, so a
-grandmaster already on the map can be matched to it - `000580.fffe.08355b` becomes
+grandmaster already on the map can be matched to it - `025566.fffe.000001` becomes
 the switch your servers were plugged into all along, with its clock class, time
 source and distance in hops beside it.
 
@@ -299,9 +434,9 @@ split domain, and gets said once:
 
 ```text
 PTP, domain 24
-  grandmaster 000580.fffe.08355b  (sw-core-1, class 6)
+  grandmaster 025566.fffe.000001  (sw-core-1, class 6)
       server1 enp23s0f2   SLAVE, offset -3 ns, path delay 9 ns, 1 step(s)
-  grandmaster 008015.fffe.4290d0  (class 6)
+  grandmaster 02aabb.fffe.000002  (class 6)
       server3 enp23s0f0   SLAVE, offset +3 ns, path delay 21 ns, 1 step(s)
   island: server1 enp23s0f0 is the grandmaster of its own segment
   SPLIT DOMAIN: domain 24 follows 2 different grandmasters that are not ours
@@ -316,7 +451,7 @@ This costs two cheap commands per host and runs by default. `--no-ptp` turns it 
 
 ## Topology discovery
 
-Give it one seed device and it walks outwards along LLDP/CDP, building a graph:
+Give it a seed device and it walks outwards along LLDP/CDP, building a graph:
 
 ```bash
 python -m linkfinder --topology 10.70.129.27 -u admin -p secret \
@@ -327,9 +462,9 @@ python -m linkfinder --topology 10.70.129.27 -u admin -p secret \
 ```
 DEPTH  DEVICE       KIND    STATE         MANAGEMENT IP  CHASSIS
 0      delta        host    scanned       10.70.129.27   -
-1      sw-lab-1     switch  scanned       10.70.244.30   00:05:80:08:3e:bf
-1      sw-edge-1    switch  out-of-scope  10.78.94.1     04:f4:1c:eb:06:4d
-2      sw-access-1  switch  unscanned     -              ec:50:aa:1f:ec:80
+1      sw-lab-1     switch  scanned       10.70.244.30   aa:bb:cc:dd:ee:01
+1      sw-edge-1    switch  out-of-scope  10.78.94.1     aa:bb:cc:dd:ee:02
+2      sw-access-1  switch  unscanned     -              aa:bb:cc:dd:ee:03
 ```
 
 **Identity is the chassis id, not the address.** One device wearing ten VLAN addresses is
@@ -338,6 +473,18 @@ and the addresses collect in `mgmt_ips`. Two different chassis ids on one addres
 devices. Merging never destroys what is already known - addresses and sources are unioned,
 the first and last sighting widen, the more informative name or model wins, and a later
 failure cannot overwrite an earlier success.
+
+**Several seeds, and no asking twice.** `--topology` takes a list, and in the window
+every address in the Target field is a seed. Press Generate after a Scan and the devices
+that scan already interrogated go straight onto the map - the walk starts from their
+neighbours instead of asking them again:
+
+```bash
+python -m linkfinder --topology 10.70.129.27,10.70.129.28 --max-depth 2
+```
+
+A seed may carry its own login, the same way a scan target may:
+`--topology root@10.70.129.27,admin:secret@10.70.244.30`.
 
 **Depth.** The seed is depth 0. At `--max-depth N` the devices at depth N are still
 interrogated, but their neighbours are recorded without being queued.
@@ -379,7 +526,7 @@ python -m linkfinder --render-topology site.topology.json site.topology.html
   "schema_version": 1,
   "generated_at": "2026-10-05T16:21:17",
   "seed": "10.70.129.27",
-  "nodes": [ { "id": "chassis:00:05:80:08:3e:bf", "kind": "switch", "state": "scanned",
+  "nodes": [ { "id": "chassis:aa:bb:cc:dd:ee:01", "kind": "switch", "state": "scanned",
                "mgmt_ips": ["10.70.244.30"], "sources": ["snmp"] } ],
   "edges": [ { "a": "...", "a_iface": "1/1/28", "b": "...", "b_iface": "21",
                "confidence": "confirmed", "protos": ["LLDP"] } ]
@@ -489,7 +636,7 @@ wins over the environment, which wins over the file.
 TARGET         LOCAL PORT  SWITCH  SWITCH PORT            SWITCH IP      VLAN  VIA                   CONF
 10.70.129.27  ens3f3np3   sw-lab-1  10GigabitEthernet 1/1  10.70.244.30  -     LLDP/toolbox-tcpdump  high
 10.70.71.218  oam         sw-access-3  1/1/30                 -              -     LLDP/networkctl       high
-192.168.1.13   -           sw-lab-1  10GigabitEthernet 1/4  10.70.244.30  100   FDB/snmp-fdb:...      low
+198.51.100.13   -           sw-lab-1  10GigabitEthernet 1/4  10.70.244.30  100   FDB/snmp-fdb:...      low
 ```
 
 `SWITCH IP` is the switch's own management address, taken from the LLDP Management
@@ -560,6 +707,67 @@ Produces `dist\linkfinder.exe` (console/CLI) and `dist\LinkFinder-GUI.exe` (wind
 The two names have to differ in more than case: Windows treats `linkfinder.exe` and
 `LinkFinder.exe` as the same file, so the second build silently overwrites the first.
 A running `LinkFinder-GUI.exe` also has to be closed before PyInstaller can replace it.
+
+
+### An internal build with its own icon
+
+`build.ps1` takes a brand:
+
+```powershell
+.\build.ps1              # linkfinder.exe      LinkFinder-GUI.exe
+.\build.ps1 -Brand pw    # linkfinder-pw.exe   LinkFinder-PW-GUI.exe
+```
+
+The branded build reads an icon and a few strings from a local `branding/`
+folder which is **not part of this project** - it is in `.gitignore` and the
+site-reference check skips it, so a company logo never reaches a public
+repository. `branding/README.txt` says what to put there. Missing those files
+is an error, not a quiet fall back to the open build under another name.
+
+The two builds are named apart deliberately. Windows file names are
+case-insensitive, so two builds sharing one name in one folder silently leave
+a single file.
+
+`branding/brand.json` can set `"author": ""`, which drops the "- by ..." from
+the window title, from a generated topology page and from `--version`. The
+MIT licence, the `LICENSE` and `AUTHORS` files, the copyright line and the
+header of every source file are untouched either way: the notice has to travel
+with the copy, and whose name sits in a title bar is a different question.
+
+`build.sh` is the twin on Linux and takes the same brand:
+
+```sh
+./build.sh          # linkfinder      linkfinder-gui
+./build.sh pw       # linkfinder-pw   linkfinder-pw-gui
+```
+
+There is no icon in an ELF, so branding on that side is the byline alone. The
+window is packaged only when `tkinter` imports, because a binary built without
+it fails at the moment somebody opens it and not before.
+
+### What a build leaves behind
+
+Both scripts end by sorting `dist/` into one folder per audience and zipping
+it, so there is a single file to hand over:
+
+```
+dist/pw/windows/     linkfinder-pw.exe, LinkFinder-PW-GUI.exe, READ ME FIRST.txt
+dist/pw/linux/       linkfinder-pw, READ ME FIRST.txt
+dist/pw/             README.md, DOCUMENTATION.md, LICENSE, AUTHORS, docs/
+dist/LinkFinder-pw-1.1.0.zip
+```
+
+A Linux binary is built elsewhere - it cannot be made on Windows - and is
+dropped into `dist/_linux/` by hand before packaging. Its own folder, because
+`linkfinder` and `linkfinder.exe` are one name apart and MSYS tools resolve
+the first to the second. `python tools/package.py pw` repeats the packaging
+step alone. A binary is tied to the glibc it was built against.
+
+The two front ends must carry the same icon, and twice they appeared not to
+when the files were identical and the Windows icon cache was stale.
+`tools/same_icon.py` hashes every image in both executables and in the source
+`.ico`; the branded build runs it as a step and fails rather than shipping a
+mismatch.
 
 ## Layout
 

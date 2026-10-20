@@ -51,6 +51,19 @@ WITH_DOM = SR + """	Module temperature                        : 34.52 degrees C
 	Rcvr signal avg optical power             : -3.8120 dBm
 """
 
+# What ethtool prints on the machines this tool is actually run against: the
+# power twice over, milliwatts first. Reading the first number filed milliwatts
+# as dBm and made every healthy transceiver look out of specification.
+WITH_BOTH_UNITS = SR + """	Module temperature                        : 29.51 degrees C
+	Module voltage                            : 3.3486 V
+	Laser output power                        : 0.5829 mW / -2.3473 dBm
+	Rcvr signal avg optical power             : 0.6078 mW / -2.1655 dBm
+"""
+
+DARK = """	Identifier                                : 0x03 (SFP)
+	Rcvr signal avg optical power             : 0.0000 mW / -inf dBm
+"""
+
 GIG_COPPER = """	Identifier                                : 0x03 (SFP)
 	Transceiver type                          : Ethernet: 1000BASE-T
 	Length (Copper)                           : 100m
@@ -195,6 +208,19 @@ bare = [host("198.51.100.10", "node-a", "f0", "", peer=("node-b", "f3"))]
 match_optics(bare)
 check_that("a host with no modules at all is left alone",
            "optics" in (bare[0].neighbors[0].extra.get("checks") or {}), False)
+
+print()
+print("-- optical power is a level, and ethtool prints it two ways --")
+both = parse_ethtool_m(WITH_BOTH_UNITS)
+check_that("the dBm figure is the one kept", both["tx_dbm"], -2.3473)
+check_that("and the receive side too", both["rx_dbm"], -2.1655)
+check_that("the milliwatts are kept beside it, not instead of it", both["tx_mw"], 0.5829)
+check_that("a build that prints dBm alone still works",
+      parse_ethtool_m(WITH_DOM)["tx_dbm"], -2.301)
+check_that("a reading is never the milliwatt number in a dBm field",
+      parse_ethtool_m(WITH_BOTH_UNITS)["tx_dbm"] > 0, False)
+check_that("a dark receiver has no level at all, rather than a small one",
+      parse_ethtool_m(DARK)["rx_dbm"], None)
 
 print()
 if FAILURES:

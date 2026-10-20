@@ -11,7 +11,6 @@ Copyright (c) 2026 Stas Mitin. SPDX-License-Identifier: MIT
 from __future__ import annotations
 
 import re
-import socket
 import sys
 import time
 from typing import Callable, Dict, List, Optional, Tuple
@@ -281,11 +280,24 @@ class Switch:
 
 
 def local_arp_mac(ip: str) -> str:
-    """Last resort when no switch holds the ARP entry: ping, then read our own cache."""
-    ping = ["ping", "-n", "1", "-w", "1000", ip] if sys.platform.startswith("win") \
-        else ["ping", "-c", "1", "-W", "1", ip]
+    """Last resort when no switch holds the entry: ping, then read our own cache.
+
+    On Linux the cache is read with `ip neigh` first. net-tools has been
+    deprecated for years and `arp` is absent from plenty of minimal installs
+    and containers, while `ip` is always there; `arp` stays as the fallback so
+    an older box still works, and Windows keeps using it outright.
+    """
+    windows = sys.platform.startswith("win")
+    ping = (["ping", "-n", "1", "-w", "1000", ip] if windows
+            else ["ping", "-c", "1", "-W", "1", ip])
     run_quiet(ping, timeout=6)
-    _rc, out = run_quiet(["arp", "-a", ip], timeout=6)
+    out = ""
+    if not windows:
+        code, text = run_quiet(["ip", "neigh", "show", ip], timeout=6)
+        if code == 0 and text.strip():
+            out = text
+    if not out:
+        _rc, out = run_quiet(["arp", "-a", ip], timeout=6)
     for line in out.splitlines():
         if ip in line:
             found = re.search(r"([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}", line)

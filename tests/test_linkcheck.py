@@ -154,10 +154,21 @@ check("the other way round is also a warning",
 
 print()
 print("-- a bundle is one link on the map, not four --")
-ifaces = {"bond0": Iface(name="bond0"),
+ifaces = {"bond0": Iface(name="bond0", kind="bond"),
           "eno1": Iface(name="eno1", master="bond0"),
           "eno2": Iface(name="eno2", master="bond0"),
-          "eno3": Iface(name="eno3")}
+          "eno3": Iface(name="eno3"),
+          "virbr0": Iface(name="virbr0", kind="bridge"),
+          "virbr0-nic": Iface(name="virbr0-nic", master="virbr0")}
+check("a bridge with members is not an aggregation",
+      "virbr0" in bonds_from_ifaces(ifaces), False)
+check("a master of some other kind is not assumed to be one",
+      bonds_from_ifaces({"vrf0": Iface(name="vrf0"),
+                         "eno9": Iface(name="eno9", master="vrf0")}), {})
+check("but the kernel naming it as a bond is enough on its own",
+      bonds_from_ifaces({"bond9": Iface(name="bond9"),
+                         "eno9": Iface(name="eno9", master="bond9")},
+                        known={"bond9"}), {"bond9": ["eno9"]})
 check("members are read off the master links", bonds_from_ifaces(ifaces),
       {"bond0": ["eno1", "eno2"]})
 check("a host with no bonds yields none", bonds_from_ifaces({"eth0": Iface(name="eth0")}),
@@ -364,6 +375,26 @@ vague.add_edge(v1.id, "Eth1/17", v2.id, "eno1", proto="LLDP", reported_by=v1.id)
 vague.add_edge(v2.id, "eno1", v1.id, "?", proto="FDB", reported_by=v2.id)
 check("an unnamed far port is not evidence of a conflict",
       find_disagreements(vague), [])
+
+print()
+print("-- a switch nobody asked has not disagreed --")
+# Seen on a live pair: no switch was walked, so every bonded port on every
+# host was warned about - "the switch port is not in any aggregation we can
+# see" when nothing had been looked at. A check that fires on the absence of
+# evidence cannot pass, and an engineer learns to ignore it.
+class _Bonded(object):
+    local_parent = "bond0"
+    local_mtu = "1500"
+    vlan = ""
+    local_speed = "10000Mb/s"
+
+check("nothing read from the far end means nothing to say",
+      problems(compare(_Bonded(), None)), [])
+check("the port was read and really is not bundled - that is a finding",
+      problems(compare(_Bonded(), {"mtu": "1500", "speed_mbps": 10000})),
+      ["lacp"])
+check("and a bundle at both ends is quiet",
+      problems(compare(_Bonded(), {"mtu": "1500", "aggregator": "Po1"})), [])
 
 print()
 if FAILURES:

@@ -16,6 +16,39 @@
  #bar input, #bar select, #bar button { font:12px inherit; padding:4px 8px;
         border:1px solid #cbd5e0; border-radius:4px; background:#fff; }
  #bar button { cursor:pointer; }
+ #pick { display:none; padding:7px 14px; background:#fffbea;
+   border-bottom:1px solid #e6d9a2; align-items:center; gap:8px;
+   flex-wrap:wrap; font-size:12px; }
+ #pick.on { display:flex; }
+ #pick input, #pick button { font:12px inherit; padding:4px 8px;
+   border:1px solid #cbd5e0; border-radius:4px; background:#fff; }
+ #pick button { cursor:pointer; }
+ #pick button:disabled { color:#a0aec0; border-color:#e2e8f0; cursor:default; }
+ #pick b { font-weight:600; }
+ #pick .said { color:#2f6f3e; }
+
+ .nb-CONFLICT { border-left-color:#c5221f; }
+ .nb-MISMATCH { border-left-color:#bf6a02; }
+ .nb-MISSING_IN_NETBOX { border-left-color:#1a4f9c; }
+ .nb-NOT_VERIFIED { border-left-color:#9aa4af; }
+ .tagpick { display:inline-block; margin-right:12px; }
+ .connect { font:13px inherit; padding:5px 12px; border-radius:4px;
+   border:1px solid #1a4f9c; background:#1a4f9c; color:#fff; cursor:pointer; }
+ .connect:hover { background:#16417f; }
+ #setupedit { margin-top:12px; padding-top:10px; border-top:1px solid #e2e8f0; }
+ #setupedit h3 { font-size:12px; margin:0 0 6px; color:#2d3748; }
+ #setupedit input { font:12px inherit; padding:3px 6px; border:1px solid #cbd5e0;
+   border-radius:4px; width:140px; }
+ #setupedit button { font:12px inherit; padding:3px 8px; border:1px solid #cbd5e0;
+   border-radius:4px; background:#fff; cursor:pointer; }
+ .chip { display:inline-block; padding:2px 6px; margin:0 4px 4px 0; font-size:12px;
+   background:#edf2f7; border:1px solid #cbd5e0; border-radius:10px; }
+ .chip a { color:#718096; text-decoration:none; margin-left:5px; font-weight:600; }
+ .chip a:hover { color:#c5221f; }
+ #ssh { margin-top:10px; }
+ #ssh a { color:#1a4f9c; }
+ #ssh .warn { margin-top:6px; padding:7px 9px; background:#fff4e5;
+   border:1px solid #e6c88a; border-radius:4px; color:#6b4b14; }
  #wrap { display:flex; height:calc(100vh - 98px); }
  #cy { flex:1; background:#fff; }
  #side { width:340px; border-left:1px solid #cbd5e0; padding:12px 14px; overflow:auto;
@@ -27,11 +60,20 @@
  #side td.k { color:#4a5568; width:38%; }
  .legend { display:flex; gap:12px; flex-wrap:wrap; font-size:11px; }
  .legend span { display:inline-flex; align-items:center; gap:5px; }
+ /* A legend is a key to the drawing, not a list of what happens to be in
+    it: an entry that disappears when nothing uses it reads as missing. */
+ .legend span.absent { opacity:0.4; }
  .dot { width:11px; height:11px; border-radius:3px; display:inline-block; }
  .ico { width:22px; height:18px; object-fit:contain; vertical-align:middle;
         border-radius:3px; padding:1px; }
  .line { width:18px; height:0; display:inline-block; }
  .muted { color:#718096; }
+ /* Panel lines are "<name padded to 14>  <what it is>". pre-wrap keeps the
+    padding but wraps the overflow back to column 0, so a long line broke the
+    column and read as two unrelated ones. A hanging indent of the same width
+    puts the continuation under the text it belongs to. */
+ .facts div { font:12px/1.55 Consolas,monospace; white-space:pre-wrap;
+              padding:1px 0; padding-left:15ch; text-indent:-15ch; }
 </style>
 </head>
 <body>
@@ -41,6 +83,19 @@
   <span class="meta">seed __SEED__ &middot; __SUMMARY__ &middot; generated __GENERATED__</span>
   <span class="meta" id="stopnote"></span>
 </header>
+<div id="pick">
+  <span><b id="pickcount">0</b> selected</span>
+  <span class="muted" id="pickalready"></span>
+  <label>setup
+    <input id="pickname" list="setupnames" size="16" placeholder="name">
+    <datalist id="setupnames"></datalist>
+  </label>
+  <button id="pickmark">Add</button>
+  <button id="pickunmark">Remove</button>
+  <button id="pickclear">Clear selection</button>
+  <span class="said" id="pickstate"></span>
+</div>
+
 <div id="bar">
   <label>layout
     <select id="layout">
@@ -50,10 +105,26 @@
       <option value="grid">grid</option>
     </select>
   </label>
+  <label>go to
+    <input id="goto" list="devicelist" size="26"
+           placeholder="name, address or serial">
+    <datalist id="devicelist"></datalist>
+  </label>
   <input id="filter" placeholder="filter by name, IP, chassis..." size="24">
+  <label title="A device keeps its neighbours' addresses too, so a search can match a device that merely knows the one you typed."><input type="checkbox" id="alsoMentions"> also where it is only mentioned</label>
+  <span id="mentions" class="muted"></span>
   <label><input type="checkbox" id="showUnscanned" checked> unscanned</label>
+  <label><input type="checkbox" id="showUnreachable" checked> unreachable</label>
   <label><input type="checkbox" id="showLabels" checked> interface labels</label>
   <label><input type="checkbox" id="showIcons" checked> device icons</label>
+  <label id="markbox" style="display:none" title="Off, so clicking a device just shows it. Turn this on when you actually want to put devices in a setup."><input type="checkbox" id="markmode"> mark setups</label>
+  <!-- Always here. It used to hide itself whenever no device carried a
+       setup, which reads as "that option has been taken away" rather than
+       "there is nothing to choose between yet" - and that is exactly how
+       it was reported. It now says which of the two it is. -->
+  <label id="setupbox">setup
+    <select id="setup"><option value="">all</option></select>
+  </label>
   <span id="layers">layer
     <label><input type="radio" name="layer" value="physical" checked> physical</label>
     <label><input type="radio" name="layer" value="ptp"> PTP</label>
@@ -72,15 +143,20 @@
 </div>
 <script>__CYTOSCAPE__</script>
 <script>
+// Where to write a change, when this copy was opened from the window. A
+// saved file has nothing here and is a viewer.
+const LIVE = __LIVE__;
 const TOPOLOGY = __DATA__;
 const ELEMENTS = __ELEMENTS__;
 const KIND_STYLE = __KIND_STYLE__;
 const EDGE_STYLE = __EDGE_STYLE__;
+const USB_STYLE = __USB_STYLE__;
 const ICONS = __ICONS__;
 const PTP_STYLE = __PTP_STYLE__;
 const VERDICT_STYLE = __VERDICT_STYLE__;
 
 function iconFor(n) { return ICONS[n.data('icon')] || ICONS.unknown; }
+function ptpIconFor(n) { return ICONS[n.data('ptpIcon')] || ICONS['clock:']; }
 
 if (TOPOLOGY.stopped_because) {
   document.getElementById('stopnote').textContent =
@@ -96,6 +172,28 @@ Object.keys(EDGE_STYLE).forEach(function (k) {
   const s = document.createElement('span');
   s.innerHTML = '<i class="line" style="border-top:3px ' + EDGE_STYLE[k][1] + ' '
     + EDGE_STYLE[k][0] + '"></i>' + k;
+  legend.appendChild(s);
+});
+const usbDrawn = {};
+(ELEMENTS.edges || []).forEach(function (e) {
+  if (e.data && e.data.usb) { usbDrawn[e.data.usb] = true; }
+});
+// Every generation is listed, whether or not one is drawn here. Hiding the
+// unused ones was read as "USB 3 is not supported" rather than "nothing on
+// this map runs at USB 3", which is the opposite of what it meant.
+const USB_MEANS = {
+  'USB 1': 'up to 12 Mb/s',
+  'USB 2': '480 Mb/s',
+  'USB 3': '5 Gb/s or faster',
+  'USB': 'the port did not report a speed'
+};
+Object.keys(USB_STYLE).forEach(function (k) {
+  const s = document.createElement('span');
+  if (!usbDrawn[k]) { s.className = 'absent'; }
+  s.title = (USB_MEANS[k] || '')
+    + (usbDrawn[k] ? '' : ' - nothing on this map is connected this way');
+  s.innerHTML = '<i class="line" style="border-top:3px solid ' + USB_STYLE[k]
+    + '"></i>' + k;
   legend.appendChild(s);
 });
 
@@ -124,6 +222,18 @@ const cy = cytoscape({
         'background-opacity': 0.45, 'background-image-opacity': 0.5 } },
     { selector: 'node[state = "unscanned"]', style: {
         'background-opacity': 0.35, 'background-image-opacity': 0.45 } },
+    { selector: 'node[netboxState = "differs"]', style: {
+        'overlay-color': '#bf6a02', 'overlay-opacity': 0.22,
+        'overlay-padding': 7 } },
+    { selector: 'node[netboxState = "only here"]', style: {
+        'overlay-color': '#1a4f9c', 'overlay-opacity': 0.18,
+        'overlay-padding': 7 } },
+    { selector: 'node[netboxState = "ambiguous"]', style: {
+        'overlay-color': '#c5221f', 'overlay-opacity': 0.22,
+        'overlay-padding': 7 } },
+    { selector: 'node.shared', style: {
+        'border-style': 'dashed', 'border-width': 3,
+        'border-color': '#4a5568' } },
     { selector: 'node[state = "out-of-scope"]', style: {
         'background-opacity': 0.3, 'background-image-opacity': 0.4,
         'border-style': 'dashed' } },
@@ -133,28 +243,61 @@ const cy = cytoscape({
     { selector: 'edge', style: {
         'width': 'data(width)', 'line-color': 'data(colour)',
         'line-style': 'data(lineStyle)', 'curve-style': 'bezier',
-        'source-label': 'data(a_iface)', 'target-label': 'data(b_iface)',
+        'source-label': function (e) {
+          const v = e.data('a_iface'); return v && v !== '?' ? v : ''; },
+        'target-label': function (e) {
+          const v = e.data('b_iface'); return v && v !== '?' ? v : ''; },
         'source-text-offset': 46, 'target-text-offset': 46,
         'source-text-margin-y': -10, 'target-text-margin-y': -10,
         'font-size': 9, 'color': '#2d3748',
         'text-background-color': '#ffffff', 'text-background-opacity': 0.85,
         'text-background-padding': 2, 'edge-text-rotation': 'autorotate' } },
+    // A cable from a machine back into itself has both ends on one node, so
+    // the two port labels are measured from the same point in the same
+    // direction and land on each other and on the device. One label naming
+    // both ports, swung clear of the node, says the same thing and can be
+    // read.
+    { selector: 'edge:loop', style: {
+        'source-label': '', 'target-label': '', 'label': 'data(label)',
+        'curve-style': 'bezier', 'loop-direction': '-60deg',
+        'loop-sweep': '-35deg', 'control-point-step-size': 80,
+        'text-margin-y': -14, 'edge-text-rotation': 'none' } },
+    { selector: 'edge[ptptree = 1]', style: {
+        'line-color': '#cbd5e0', 'width': 2, 'line-style': 'dotted',
+        'curve-style': 'bezier', 'target-arrow-shape': 'none',
+        'source-label': '', 'target-label': '', 'label': 'data(label)',
+        'font-size': 9, 'color': '#718096',
+        'text-background-color': '#ffffff', 'text-background-opacity': 0.85,
+        'text-background-padding': 2 } },
+    { selector: 'edge[ptptree = 1][dup = 1]', style: { 'display': 'none' } },
+    { selector: 'edge[ptponly = 1]', style: { 'display': 'none' } },
     { selector: 'node.ptp', style: {
-        'background-image': 'none', 'shape': 'ellipse',
-        'background-color': 'data(ptpColour)', 'background-opacity': 1,
-        'width': 30, 'height': 30, 'border-width': 2,
-        'border-color': '#ffffff' } },
-    { selector: 'node.ptp[ptpRole = ""]', style: {
-        'background-color': '#c9d1d9', 'width': 18, 'height': 18,
-        'color': '#8b949e' } },
+        'background-image': ptpIconFor, 'shape': 'ellipse',
+        'background-color': '#ffffff', 'background-opacity': 1,
+        'background-width': '78%', 'background-height': '78%',
+        'width': 42, 'height': 42, 'border-width': 3,
+        'border-color': 'data(ptpColour)' } },
+    { selector: 'node.ptp[ptpOff = 1]', style: {
+        'background-image': iconFor, 'shape': 'data(shape)',
+        'background-color': 'data(tint)', 'background-opacity': 0.3,
+        'background-image-opacity': 0.32,
+        'width': 'data(iconW)', 'height': 'data(iconH)',
+        'border-width': 1, 'border-color': '#d7dde3', 'color': '#9aa4af' } },
     { selector: 'edge.ptp', style: {
-        'line-color': '#c9d1d9', 'width': 2, 'line-style': 'solid',
-        'source-label': '', 'target-label': '' } },
-    { selector: 'edge.ptp[ptpDomain != ""]', style: {
-        'line-color': '#6f42c1', 'width': 3, 'label': 'data(ptpDomain)',
-        'font-size': 9, 'text-background-color': '#ffffff',
-        'text-background-opacity': 0.85, 'text-background-padding': 2 } },
+        'line-color': '#cbd5e0', 'width': 2, 'line-style': 'solid' } },
+    { selector: 'edge.ptp[ptponly = 1]', style: {
+        'display': 'element', 'line-style': 'dotted' } },
+    { selector: 'edge.ptp[ptptree = 1]', style: {
+        'display': 'element', 'line-color': 'data(ptpColour)', 'width': 3,
+        'line-style': 'solid', 'curve-style': 'bezier',
+        'target-arrow-shape': 'triangle', 'arrow-scale': 1.2,
+        'target-arrow-color': 'data(ptpColour)',
+        'source-label': '', 'target-label': '',
+        'label': 'data(label)', 'font-size': 9, 'color': '#2d3748',
+        'text-background-color': '#ffffff', 'text-background-opacity': 0.85,
+        'text-background-padding': 2 } },
 
+    { selector: 'edge.problems[ptptree = 1]', style: { 'display': 'none' } },
     { selector: 'node.problems', style: {
         'background-opacity': 0.12, 'background-image-opacity': 0.18,
         'border-color': '#d7dde3', 'color': '#9aa4af' } },
@@ -217,9 +360,20 @@ document.getElementById('layout').onchange = function (e) { applyLayout(e.target
 document.getElementById('fit').onclick = function () { cy.fit(cy.elements(), 30); };
 document.getElementById('showLabels').onchange = function (e) {
   const on = e.target.checked;
-  cy.style().selector('edge')
-    .style('source-label', on ? 'data(a_iface)' : '')
-    .style('target-label', on ? 'data(b_iface)' : '').update();
+  // Not on a loop: its two ends are the same node, so putting the port
+  // names back there puts them on top of each other again. It carries one
+  // label naming both, which the switch leaves alone.
+  // A "?" is "port unknown" - a placeholder the edge id needs, not a label
+  // worth drawing. Show a real port name, nothing for "?".
+  const port = function (field) {
+    return function (ele) {
+      const v = ele.data(field);
+      return (on && v && v !== '?') ? v : '';
+    };
+  };
+  cy.style().selector('edge:simple')
+    .style('source-label', port('a_iface'))
+    .style('target-label', port('b_iface')).update();
 };
 function applyLayer(name) {
   cy.elements().removeClass('ptp problems');
@@ -233,6 +387,13 @@ function legendFor(name) {
   const extra = document.getElementById('layerlegend');
   extra.innerHTML = '';
   if (name === 'ptp') {
+    const cable = document.createElement('span');
+    cable.innerHTML = '<i class="line" style="border-top:2px solid #cbd5e0">'
+      + '</i>cabling';
+    extra.appendChild(cable);
+    const mute = document.createElement('span');
+    mute.innerHTML = '<i class="dot" style="background:#d7dde3"></i>no clock';
+    extra.appendChild(mute);
     Object.keys(PTP_STYLE).forEach(function (role) {
       if (!role) { return; }
       const s = document.createElement('span');
@@ -240,6 +401,7 @@ function legendFor(name) {
         + '"></i>' + role.toLowerCase();
       extra.appendChild(s);
     });
+  } else if (name === 'physical') {
   } else if (name === 'problems') {
     ['mismatch', 'warn'].forEach(function (verdict) {
       const s = document.createElement('span');
@@ -259,69 +421,535 @@ document.getElementById('showIcons').onchange = function (e) {
   cy.nodes().toggleClass('plain', !e.target.checked);
   cy.fit(cy.elements(), 40);
 };
-document.getElementById('showUnscanned').onchange = function (e) {
-  cy.nodes('[state = "unscanned"]').toggleClass('hidden', !e.target.checked);
-  syncEdges();
-};
-document.getElementById('filter').oninput = function (e) {
-  const q = e.target.value.trim().toLowerCase();
+function stateAllowed(data) {
+  const boxes = { unscanned: 'showUnscanned', unreachable: 'showUnreachable' };
+  const id = boxes[data.state];
+  if (!id) { return true; }
+  const box = document.getElementById(id);
+  return !box || box.checked;
+}
+
+function hideByState(id, _state) {
+  document.getElementById(id).onchange = applyFilter;
+}
+hideByState('showUnscanned', 'unscanned');
+hideByState('showUnreachable', 'unreachable');
+let alsoMentions = false;
+
+// A device is what it is, not what it has heard of. Matching the whole record
+// made every host that held an address in its ARP cache answer for it, so the
+// search looks at identity first and counts the rest separately.
+function applyFilter() {
+  const q = document.getElementById('filter').value.trim().toLowerCase();
+  const picker = document.getElementById('setup');
+  const want = picker ? picker.value : '';
+  workOutShared(want);
+  let mentions = 0;
   cy.nodes().forEach(function (n) {
-    const hay = JSON.stringify(n.data()).toLowerCase();
-    n.toggleClass('hidden', q.length > 0 && hay.indexOf(q) < 0);
+    const data = n.data();
+    const itself = q.length > 0 && (data.search || '').indexOf(q) >= 0;
+    const heard = q.length > 0 && !itself
+      && JSON.stringify(data).toLowerCase().indexOf(q) >= 0;
+    if (heard) { mentions++; }
+    const typed = q.length > 0 && !itself && !(heard && alsoMentions);
+    n.toggleClass('hidden', typed || !inSetup(data, want)
+                  || !stateAllowed(data));
+    n.toggleClass('shared', !!(want && sharedWith[data.id]));
   });
+  const note = document.getElementById('mentions');
+  if (q.length === 0 || mentions === 0) {
+    note.textContent = '';
+  } else {
+    note.textContent = mentions + (alsoMentions ? ' of these only mention it'
+                                                : ' more only mention it');
+  }
   syncEdges();
+}
+
+// A device can serve more than one bench, so a shared uplink stays visible
+// under either of them rather than vanishing from both.
+// A bench is not only the machines somebody tagged. The switch they all hang
+// off belongs to no setup and serves several, and a picture of the bench
+// without it is not a picture of how anything is connected. So a setup is
+// shown with the kit that carries it: one hop out, and only to devices that
+// are in no setup at all - a neighbour that belongs to a DIFFERENT bench is
+// somebody else's and stays out.
+let sharedWith = {};
+
+function workOutShared(want) {
+  sharedWith = {};
+  if (!want) { return; }
+  const mine = {};
+  cy.nodes().forEach(function (n) {
+    if ((n.data('setups') || []).indexOf(want) >= 0) { mine[n.id()] = true; }
+  });
+  cy.edges().forEach(function (e) {
+    [[e.source(), e.target()], [e.target(), e.source()]].forEach(function (pair) {
+      const inside = pair[0], outside = pair[1];
+      if (!mine[inside.id()] || mine[outside.id()]) { return; }
+      if ((outside.data('setups') || []).length) { return; }
+      sharedWith[outside.id()] = true;
+    });
+  });
+}
+
+function inSetup(data, want) {
+  if (!want) { return true; }
+  if ((data.setups || []).indexOf(want) >= 0) { return true; }
+  return !!sharedWith[data.id];
+}
+
+function setupNames() {
+  const seen = {};
+  cy.nodes().forEach(function (n) {
+    (n.data('setups') || []).forEach(function (name) { seen[name] = true; });
+  });
+  return Object.keys(seen).sort();
+}
+
+function refreshSetups() {
+  const names = setupNames();
+  const picker = document.getElementById('setup');
+  const chosen = picker.value;
+  picker.innerHTML = '';
+  const all = document.createElement('option');
+  all.value = '';
+  all.textContent = 'all';
+  picker.appendChild(all);
+  const list = document.getElementById('setupnames');
+  list.innerHTML = '';
+  names.forEach(function (name) {
+    const option = document.createElement('option');
+    option.value = name;
+    option.textContent = name;
+    picker.appendChild(option);
+    const hint = document.createElement('option');
+    hint.value = name;
+    list.appendChild(hint);
+  });
+  picker.value = names.indexOf(chosen) >= 0 ? chosen : '';
+  // Stay on screen with nothing to offer rather than disappearing. A
+  // control that vanishes looks removed, and was reported as removed; one
+  // that is present and says it is empty sends somebody to the reason.
+  const box = document.getElementById('setupbox');
+  box.style.display = '';
+  picker.disabled = !names.length;
+  box.style.opacity = names.length ? '' : '0.55';
+  box.title = names.length
+    ? 'Show only the devices in one setup.'
+    : 'No device here is in a setup yet. Setups come from the NetBox tags '
+      + 'you chose, from a [name] heading in a host list, or from marking '
+      + 'devices on this page.';
+  if (!names.length) {
+    all.textContent = 'none named yet';
+  }
+  picker.onchange = applyFilter;
+}
+refreshSetups();
+
+// Forty devices is more than a person can find by eye, and two of them can
+// share a name, so the list carries the address that tells them apart.
+const picker = document.getElementById('goto');
+const pickList = document.getElementById('devicelist');
+// The serial is on the line because that is what an inventory is keyed by, so
+// a number read off a label or out of NetBox finds the device directly.
+const pickById = {};
+// The box says "name, address or serial", and it used to mean only the whole
+// composed line - "server1   10.0.0.5   SN ABC123". Typing just the address
+// matched nothing and the box did nothing at all, silently. Each part is a
+// key of its own now. A key that two devices share is dropped rather than
+// sending you to whichever was built first.
+const pickByPart = {};
+function remember(key, id) {
+  const text = String(key || '').trim().toLowerCase();
+  if (!text) { return; }
+  if (Object.prototype.hasOwnProperty.call(pickByPart, text)
+      && pickByPart[text] !== id) {
+    pickByPart[text] = '';
+    return;
+  }
+  pickByPart[text] = id;
+}
+cy.nodes().sort(function (a, b) {
+  return a.data('label').localeCompare(b.data('label'));
+}).forEach(function (n) {
+  const bits = [n.data('label')];
+  const where = (n.data('mgmt_ips') || [])[0] || n.data('chassis_id') || '';
+  if (where) { bits.push(where); }
+  if (n.data('serial')) { bits.push('SN ' + n.data('serial')); }
+  const text = bits.join('   ');
+  pickById[text] = n.id();
+  remember(text, n.id());
+  remember(n.data('label'), n.id());
+  remember(n.data('chassis_id'), n.id());
+  remember(n.data('serial'), n.id());
+  (n.data('mgmt_ips') || []).forEach(function (ip) { remember(ip, n.id()); });
+  const option = document.createElement('option');
+  option.value = text;
+  pickList.appendChild(option);
+});
+function findTyped(value) {
+  const typed = String(value || '').trim();
+  if (!typed) { return ''; }
+  const want = typed.toLowerCase();
+  if (pickById[typed]) { return pickById[typed]; }
+  if (pickByPart[want]) { return pickByPart[want]; }
+  // Two of a name are told apart by the address on the end of the label, so
+  // what a person types is often the start of it: "server1" for
+  // "server1 (10.0.0.5)". One match goes there; two or more is not an answer.
+  let hit = '';
+  let found = 0;
+  Object.keys(pickByPart).forEach(function (key) {
+    if (key.indexOf(want) !== 0 || !pickByPart[key]) { return; }
+    if (pickByPart[key] !== hit) { found++; }
+    hit = pickByPart[key];
+  });
+  return found === 1 ? hit : '';
+}
+picker.oninput = function (e) {
+  const node = cy.getElementById(findTyped(e.target.value));
+  if (!node || node.empty()) { return; }
+  cy.elements().unselect();
+  node.select();
+  cy.animate({ center: { eles: node }, zoom: Math.max(cy.zoom(), 0.9) },
+             { duration: 300 });
+  side.innerHTML = factsHtml(node.data());
 };
 
-const HIDE = ['colour', 'shape', 'border', 'borderWidth', 'label', 'lineStyle',
-              'width', 'source', 'target', 'icon', 'tint', 'iconW', 'iconH',
-              'ptpColour', 'problemColour', 'attrs', 'worst'];
+document.getElementById('filter').oninput = applyFilter;
+document.getElementById('alsoMentions').onchange = function (e) {
+  alsoMentions = e.target.checked;
+  applyFilter();
+};
 
-function explain(data) {
-  const layers = data.attrs || {};
-  const names = Object.keys(layers).sort();
-  if (!names.length) { return ''; }
-  let out = '<h2>What was checked</h2><table>';
-  names.forEach(function (name) {
-    const layer = layers[name] || {};
-    const verdict = layer.verdict || 'unknown';
-    const colour = VERDICT_STYLE[verdict] || VERDICT_STYLE.unknown;
-    let sides = '';
-    if (layer.a !== undefined || layer.b !== undefined) {
-      sides = ' <span class="muted">' + (layer.a === undefined ? '?' : layer.a)
-        + ' / ' + (layer.b === undefined ? '?' : layer.b) + '</span>';
-    }
-    out += '<tr><td class="k">' + name.toUpperCase() + '</td><td>'
-      + '<b style="color:' + colour + '">' + verdict + '</b>' + sides;
-    if (layer.detail) { out += '<br>' + String(layer.detail); }
-    (layer.evidence || []).forEach(function (line) {
-      out += '<br><span class="muted">- ' + String(line) + '</span>';
-    });
-    out += '</td></tr>';
-  });
-  return out + '</table>';
-}
 const side = document.getElementById('side');
-function rows(obj, title) {
-  let out = '<h2>' + title + '</h2><table>';
-  Object.keys(obj).forEach(function (k) {
-    if (HIDE.indexOf(k) >= 0) { return; }
-    let v = obj[k];
-    if (v === null || v === undefined || v === '') { return; }
-    if (Array.isArray(v)) { if (!v.length) { return; } v = v.join(', '); }
-    if (typeof v === 'object') { v = JSON.stringify(v); }
-    out += '<tr><td class="k">' + k + '</td><td>'
-      + String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</td></tr>';
-  });
-  return out + '</table>';
-}
 function emptyPanel() {
   side.innerHTML = '<h2>Click a node or a link</h2><p class="muted">'
     + TOPOLOGY.nodes.length + ' devices, ' + TOPOLOGY.edges.length + ' links.</p>';
 }
-cy.on('tap', 'node', function (e) { side.innerHTML = rows(e.target.data(), 'Device'); });
+function factsHtml(data) {
+  let out = '';
+  (data.facts || []).forEach(function (section) {
+    out += '<h2>' + String(section.title) + '</h2><div class="facts">';
+    (section.lines || []).forEach(function (line) {
+      out += '<div>' + String(line).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+          + '</div>';
+    });
+    out += '</div>';
+  });
+  return out;
+}
+
+// --- marking a setup on the map -------------------------------------------
+// The page is a file: it cannot write to disk. So marking takes effect here
+// immediately - that is the part a person wants to SEE - and the marks are
+// carried back to the tool as a small file it can read, which is also what
+// keeps this page a plain portable file rather than something that needs a
+// server to be useful.
+const pick = document.getElementById('pick');
+const pickCount = document.getElementById('pickcount');
+const pickName = document.getElementById('pickname');
+const pickAlready = document.getElementById('pickalready');
+const pickState = document.getElementById('pickstate');
+const markMode = document.getElementById('markmode');
+if (LIVE) { document.getElementById('markbox').style.display = ''; }
+
+function selectedNodes() { return cy.nodes(':selected'); }
+
+function markedCount() {
+  let n = 0;
+  cy.nodes().forEach(function (node) {
+    if ((node.data('setups') || []).length) { n += 1; }
+  });
+  return n;
+}
+
+// Nothing is written as you go: marks pile up here and leave in one file when
+// you ask. So the strip reports standing, not an instruction - a line telling
+// you to save after every click is just noise you learn to ignore.
+function refreshPick() {
+  const chosen = selectedNodes();
+  pickCount.textContent = chosen.length || 'no';
+  pick.className = markMode.checked ? 'on' : '';
+  const had = {};
+  chosen.forEach(function (node) {
+    (node.data('setups') || []).forEach(function (name) { had[name] = true; });
+  });
+  const names = Object.keys(had).sort();
+  pickAlready.textContent = chosen.length
+    ? (names.length ? 'already in ' + names.join(', ') : 'in no setup yet')
+    : 'drag a box round some devices, or shift-click them';
+  // Two counts about different things sat side by side and read as a
+  // contradiction - "0 selected ... 4 device(s) marked". Say what each one
+  // counts, and only talk about the selection when there is one.
+  const total = markedCount();
+  pickState.textContent = total ? (total + ' in a setup') : 'none in a setup yet';
+  const none = chosen.length === 0;
+  document.getElementById('pickmark').disabled = none;
+  document.getElementById('pickunmark').disabled = none;
+  document.getElementById('pickclear').disabled = none;
+}
+
+cy.on('select unselect', 'node', refreshPick);
+markMode.onchange = function () {
+  if (!markMode.checked) { cy.nodes().unselect(); }
+  refreshPick();
+};
+
+function applyMark(add) {
+  const name = (pickName.value || '').trim();
+  if (!name) { pickState.textContent = 'type a setup name first'; return; }
+  const chosen = selectedNodes();
+  if (!chosen.length) { return; }
+  chosen.forEach(function (n) {
+    const had = (n.data('setups') || []).slice();
+    const at = had.indexOf(name);
+    if (add && at < 0) { had.push(name); }
+    if (!add && at >= 0) { had.splice(at, 1); }
+    n.data('setups', had);
+    n.data('marked', had.length ? 1 : 0);
+  });
+  refreshSetups();
+  applyFilter();
+  refreshPick();
+  chosen.forEach(tellTheTool);
+}
+
+document.getElementById('pickmark').onclick = function () { applyMark(true); };
+document.getElementById('pickunmark').onclick = function () { applyMark(false); };
+document.getElementById('pickclear').onclick = function () {
+  cy.nodes().unselect();
+  refreshPick();
+};
+
+// --- marking, now that the tool writes it -------------------------------
+// There used to be a file here: the page downloaded what you marked and you
+// imported it back. That was ceremony born of a limitation - a page opened
+// from disk cannot write to disk - and it produced copies nobody wanted. With
+// the window answering this page there is nothing to save, so none of it is
+// left: no download, no handle to remember, no copy in the browser, and no
+// question when you close the tab.
+refreshPick();
+
+
+
+
+
+
+// The legend ran before the counts existed, so it had nothing to list.
+legendFor(document.querySelector('input[name="layer"]:checked').value);
+
+
+
+
+
+
+
+// The page cannot write a file; the window can hand it one. The browser's
+// own save dialog then does the rest, with nothing to import afterwards.
+function downloadTable() {
+  if (!LIVE) { return; }
+  window.location = LIVE + '/table';
+}
+
+// --- opening a shell on a device ------------------------------------------
+// A page cannot start an SSH session itself. It can hand the address to
+// whatever the machine has registered for ssh://, and when nothing is
+// registered the click does nothing at all - so rather than leave that
+// silence, we notice it and say what happened.
+function sshHtml(data) {
+  const where = (data.mgmt_ips || [])[0];
+  if (!where) { return ''; }
+  // Named for the device, the way the picture names it. The command is not
+  // offered up front: it is only wanted when the link turns out to do
+  // nothing, and it is offered then.
+  const who = escapeText(data.label || where);
+  return '<div id="ssh"><button id="sshlink" class="connect">Connect to '
+    + who + '</button><div id="sshsaid"></div></div>';
+}
+
+function wireSsh(data) {
+  const link = document.getElementById('sshlink');
+  if (!link) { return; }
+  const where = (data.mgmt_ips || [])[0];
+  const said = document.getElementById('sshsaid');
+  const command = 'ssh ' + where;
+
+  link.onclick = function () {
+    window.location.href = 'ssh://' + where;
+    // If something handles ssh://, the browser hands over and this window
+    // loses focus. If focus never moves, nothing opened it.
+    let left = false;
+    const note = function () { left = true; };
+    window.addEventListener('blur', note, { once: true });
+    setTimeout(function () {
+      window.removeEventListener('blur', note);
+      if (left) { return; }
+      said.innerHTML = '<div class="warn">Nothing opened that link, so this '
+        + 'machine has no SSH client registered for <code>ssh://</code>. '
+        + 'Install one - PuTTY, MobaXterm, or Windows Terminal with the '
+        + 'OpenSSH client - or run it yourself:<br><code>' + command
+        + '</code> <a href="#" id="sshcopy2">copy</a></div>';
+      const again = document.getElementById('sshcopy2');
+      if (again) {
+        again.onclick = function (e) { e.preventDefault(); copyText(command, said); };
+      }
+    }, 1500);
+  };
+}
+
+function copyText(text, said) {
+  const done = function () {
+    if (said) { said.innerHTML = '<div class="warn">copied: <code>'
+      + text + '</code></div>'; }
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done, function () { fallback(); });
+  } else { fallback(); }
+  function fallback() {
+    const box = document.createElement('textarea');
+    box.value = text;
+    document.body.appendChild(box);
+    box.select();
+    try { document.execCommand('copy'); } catch (err) { /* then the text is shown */ }
+    document.body.removeChild(box);
+    done();
+  }
+}
+
+
+// --- putting one device in a setup, where you are already looking ----------
+// The panel opens when a device is clicked, so this is the natural place to
+// say which bench it belongs to. The strip above stays for marking several at
+// once; this is for the single device in front of you.
+function setupHtml(data) {
+  const names = (data.setups || []).slice().sort();
+  let out = '<div id="setupedit"><h3>Setup</h3>';
+  out += '<div id="setupchips">';
+  if (names.length) {
+    names.forEach(function (name) {
+      out += '<span class="chip">' + escapeText(name)
+        + '<a href="#" data-name="' + escapeText(name) + '" title="take it out">'
+        + '\u2715</a></span>';
+    });
+  } else {
+    out += '<span class="muted">in no setup yet</span>';
+  }
+  out += '</div><div style="margin-top:6px;">'
+    + '<input id="setupadd" list="setupnames" placeholder="name">'
+    + ' <button id="setupaddgo">Add</button></div></div>';
+  return out;
+}
+
+function escapeText(text) {
+  return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+
+
+
+// Put a whole answer back on the picture at once. A bulk change touches
+// forty devices; redrawing the map would lose the view the person is in.
+function applySetups(table) {
+  if (!table) { return; }
+  Object.keys(table).forEach(function (id) {
+    const node = cy.getElementById(id);
+    if (!node || node.empty()) { return; }
+    const names = table[id] || [];
+    node.data('setups', names);
+    node.data('marked', names.length ? 1 : 0);
+  });
+  refreshSetups();
+  applyFilter();
+  refreshPick();
+}
+
+function setSetups(node, names) {
+  const kept = [];
+  names.forEach(function (name) {
+    if (name && kept.indexOf(name) < 0) { kept.push(name); }
+  });
+  node.data('setups', kept.sort());
+  node.data('marked', kept.length ? 1 : 0);
+  refreshSetups();
+  applyFilter();
+  refreshPick();
+  showNode(node);
+  tellTheTool(node);
+}
+
+// The window is answering this page, so a setup is written where it belongs
+// the moment it is typed - no file, no import, nothing to remember to do.
+function tellTheTool(node) {
+  if (!LIVE) { return; }
+  said('saving...');
+  fetch(LIVE + '/setups', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ device: node.id(),
+                           serial: node.data('serial') || '',
+                           chassis_id: node.data('chassis_id') || '',
+                           mgmt_ips: node.data('mgmt_ips') || [],
+                           name: node.data('label') || '',
+                           setups: node.data('setups') || [] })
+  }).then(function (r) {
+    if (!r.ok) { throw new Error('the tool answered ' + r.status); }
+    return r.json();
+  }).then(function () {
+    said('saved');
+  }).catch(function (err) {
+    // Never pretend it was written. The map still shows the change, and the
+    // line says plainly that only the screen knows about it.
+    said('NOT saved - ' + err.message);
+  });
+}
+
+function said(text) {
+  if (pickState) { pickState.textContent = text; }
+}
+
+function wireSetup(node) {
+  const add = document.getElementById('setupaddgo');
+  const box = document.getElementById('setupadd');
+  if (!add || !box) { return; }
+  const put = function () {
+    const name = (box.value || '').trim();
+    if (!name) { return; }
+    setSetups(node, (node.data('setups') || []).concat([name]));
+  };
+  add.onclick = put;
+  box.onkeydown = function (e) { if (e.key === 'Enter') { put(); } };
+  const chips = document.getElementById('setupchips');
+  if (!chips) { return; }
+  Array.prototype.forEach.call(chips.querySelectorAll('a'), function (link) {
+    link.onclick = function (e) {
+      e.preventDefault();
+      const gone = link.getAttribute('data-name');
+      setSetups(node, (node.data('setups') || []).filter(function (n) {
+        return n !== gone;
+      }));
+    };
+  });
+}
+
+function showNode(node) {
+  const data = node.data();
+  // A radio lives inside a pod and is reached only by jumping through its
+  // host, which anyone working on radios knows - so the Connect button and the
+  // setup editor are clutter on it. Its panel is just the facts.
+  if (data.kind === 'radio') {
+    side.innerHTML = factsHtml(data);
+    return;
+  }
+  side.innerHTML = factsHtml(data) + setupHtml(data) + sshHtml(data);
+  wireSetup(node);
+  wireSsh(data);
+}
+
+cy.on('tap', 'node', function (e) { showNode(e.target); });
 cy.on('tap', 'edge', function (e) {
-  const data = e.target.data();
-  side.innerHTML = explain(data) + rows(data, 'Link');
+  side.innerHTML = factsHtml(e.target.data());
 });
 cy.on('tap', function (e) { if (e.target === cy) { emptyPanel(); } });
 </script>

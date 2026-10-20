@@ -1,0 +1,55 @@
+Third-party notices for LinkFinder
+==================================
+
+LinkFinder is MIT licensed (see LICENSE). It ships or depends on the work
+below, each under its own licence. Nothing here is modified.
+
+
+Shipped inside the tool
+-----------------------
+
+cytoscape.min.js 3.30.2 - The Cytoscape Consortium
+    MIT licence. Full text: linkfinder/assets/cytoscape-LICENSE.txt
+    Vendored so a generated map opens from disk with no CDN and no network.
+
+linkfinder/assets/icons/*.svg - original line art for this project.
+    MIT, same as the tool. Not a vendor stencil set; no company logo or
+    trademark is reproduced.
+
+
+Built at package time, not redistributed here
+---------------------------------------------
+
+linkfinder/assets/oui.gz - the vendor table, built by tools/make_oui.py from
+    the IEEE public MA-L, MA-M and MA-S registries. The file is not kept in
+    this repository; run the script to produce it. The registry is published
+    by the IEEE Registration Authority, which remains its source.
+
+
+Runtime dependencies (installed from PyPI, see requirements.txt)
+----------------------------------------------------------------
+
+paramiko 3.5.1          GNU LGPL
+requests 2.25.1         Apache-2.0
+urllib3 1.26.6          MIT
+cryptography 45.0.5     Apache-2.0 OR BSD-3-Clause
+bcrypt 4.3.0            Apache-2.0
+PyNaCl 1.5.0            Apache-2.0
+cffi 1.17.1             MIT
+pycparser 2.22          BSD
+idna 2.10               BSD
+certifi 2021.5.30       MPL-2.0
+
+Paramiko is LGPL. Installing it from PyPI alongside this source raises no
+question. A single-file executable built with PyInstaller, however, carries a
+copy of it inside, and the LGPL expects the recipient to be able to replace
+that copy - so a binary build of LinkFinder should travel with this notice and
+with the means to rebuild it from source.
+
+
+Trademarks
+----------
+
+Maker names appear in linkfinder/oui.py and on the map only to say whose
+hardware a MAC address belongs to. They are the trademarks of their owners,
+are used nominatively, and imply no affiliation or endorsement.

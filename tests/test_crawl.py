@@ -40,7 +40,7 @@ def device(name, chassis, neighbours, reachable=True, error="", extra_ips=()):
 
 
 def install(fabric):
-    def fake_collect(target, _opts, log=None):
+    def fake_collect(target, _opts, log=None, cancel=None):
         builder = fabric.get(target)
         if builder is None:
             return DeviceView(target=target, reachable=False, mgmt_ips=[target],
@@ -222,7 +222,12 @@ def stop_after_first(_depth, _candidates):
 stopper.confirm = stop_after_first
 stopped = stopper.run("10.0.0.1")
 check("only the seed was probed", stopper.scanned_count, 1)
-check("reason recorded", stopped.stopped_because, "stopped on request")
+# The map must name the person, not a passive "request": somebody
+# pressed Stop and the map has to say so where they will read it.
+check("reason recorded", stopped.stopped_because, "you pressed Stop")
+check("and the summary refuses to look finished",
+      "INCOMPLETE" in stopped.topology.summary()
+      if hasattr(stopped, "topology") else True, True)
 
 print()
 print("-- a level is probed in parallel --")
@@ -238,6 +243,78 @@ install(chain)
 limited = Crawler(opts=None, limits=Limits(max_depth=9, max_devices=2))
 out = limited.run("10.0.0.1")
 check("written into the graph", "device limit" in out.stopped_because, True)
+
+print()
+print("-- every seed is walked, not just the first --")
+islands = {
+    "10.0.0.1": device("A", CH["A"], [nb("p1", "D", CH["D"], "p1", "10.0.0.4")]),
+    "10.0.0.2": device("B", CH["B"], [nb("p1", "D", CH["D"], "p2", "10.0.0.4")]),
+    "10.0.0.3": device("C", CH["C"], [nb("p1", "D", CH["D"], "p3", "10.0.0.4")]),
+    "10.0.0.4": device("D", CH["D"], []),
+}
+install(islands)
+many = Crawler(opts=None, limits=Limits(max_depth=2))
+topo = many.run(["10.0.0.1", "10.0.0.2", "10.0.0.3"])
+check("all three seeds were probed, plus what they led to",
+      many.scanned_count, 4)
+check("each seed is in the map",
+      sorted(n.name for n in topo.nodes.values()), ["A", "B", "C", "D"])
+check("all three are remembered as seeds", len(topo.seeds), 3)
+check("the first one still names the map", topo.seed, "10.0.0.1")
+check("one seed may still be given as a bare string",
+      len(Crawler(opts=None, limits=Limits(max_depth=1)).run("10.0.0.1").seeds), 1)
+
+print()
+print("-- a scan already done is used, not repeated --")
+from linkfinder.model import TargetResult
+
+
+def scanned(target, name, chassis, neighbours):
+    result = TargetResult(target=target, kind="switch", error="",
+                          device_name=name, device_chassis=chassis,
+                          device_descr="ExampleNOS")
+    for one in neighbours:
+        result.add(one)
+    return result
+
+
+asked = []
+base_collect = crawl_mod.collect_device
+
+
+def counting(target, opts, log=None, cancel=None):
+    asked.append(target)
+    return base_collect(target, opts, log=log, cancel=cancel)
+
+
+install(islands)
+base_collect = crawl_mod.collect_device
+crawl_mod.collect_device = counting
+known = [scanned("10.0.0.1", "A", CH["A"], [nb("p1", "D", CH["D"], "p1", "10.0.0.4")]),
+         scanned("10.0.0.2", "B", CH["B"], [nb("p1", "D", CH["D"], "p2", "10.0.0.4")]),
+         scanned("10.0.0.3", "C", CH["C"], [nb("p1", "D", CH["D"], "p3", "10.0.0.4")])]
+reuse = Crawler(opts=None, limits=Limits(max_depth=2))
+topo = reuse.run(["10.0.0.1", "10.0.0.2", "10.0.0.3"], known=known)
+check("the three scanned devices were not asked twice",
+      [a for a in asked if a != "10.0.0.4"], [])
+check("only the device the scan had not reached was probed", asked, ["10.0.0.4"])
+check("the map still has everything",
+      sorted(n.name for n in topo.nodes.values()), ["A", "B", "C", "D"])
+check("they count as scanned", reuse.scanned_count, 4)
+check("and are marked so",
+      [n.state for n in topo.nodes.values() if n.name == "A"], [STATE_SCANNED])
+
+asked[:] = []
+deep = Crawler(opts=None, limits=Limits(max_depth=0))
+deep.run(["10.0.0.1"], known=known)
+check("at depth 0 the reuse adds nothing to probe", asked, [])
+
+asked[:] = []
+refused = Crawler(opts=None, limits=Limits(max_depth=2),
+                  confirm=lambda _d, _c: False)
+refused.run(["10.0.0.1"], known=known)
+check("going past the scan still needs confirming", asked, [])
+crawl_mod.collect_device = base_collect
 
 print()
 if FAILURES:

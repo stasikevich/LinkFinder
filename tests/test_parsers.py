@@ -8,9 +8,12 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from linkfinder.engine import Options
 from linkfinder.probe_esxi import parse_esxcli_nics, parse_network_hint
-from linkfinder.probe_linux import (parse_lldpctl, parse_lldptool, parse_networkctl,
-                                    prefer_lldp, _capture_script)
+from linkfinder.probe_linux import (capture_landed, parse_lldpctl, parse_lldptool,
+                                   parse_networkctl,
+                                    prefer_lldp, _capture_script,
+                                    NO_TOOL_MARK)
 from linkfinder.probe_redfish import decode_hex_port, detect_vendor, hunt_lldp, neighbor_from_lldp_block
 from linkfinder.probe_switchcli import detect_family, mac_variants, port_from_line, line_has_mac
 from linkfinder.probe_snmp import oid_to_mac, mac_to_oid, _cap_text
@@ -36,7 +39,7 @@ lldp.eno1.chassis.Bridge.enabled=on
 lldp.eno1.chassis.Router.enabled=on
 lldp.eno1.chassis.Wlan.enabled=off
 lldp.eno1.port.ifname=1/1/5
-lldp.eno1.port.descr=to-bbu-01
+lldp.eno1.port.descr=to-core-01
 lldp.eno1.vlan.vlan-id=3674
 lldp.bond0.3674.via=LLDP
 lldp.bond0.3674.chassis.mac=00:11:22:33:44:66
@@ -49,7 +52,7 @@ check("lldpctl ifaces", sorted(neighbours), ["bond0.3674", "eno1"])
 check("lldpctl switch", neighbours["eno1"].switch, "sw-access-1")
 check("lldpctl port", neighbours["eno1"].port, "1/1/5")
 check("lldpctl port subtype", neighbours["eno1"].port_id_subtype, "ifname")
-check("lldpctl port desc", neighbours["eno1"].port_desc, "to-bbu-01")
+check("lldpctl port desc", neighbours["eno1"].port_desc, "to-core-01")
 check("lldpctl vlan", neighbours["eno1"].vlan, "3674")
 check("lldpctl mgmt", neighbours["eno1"].mgmt_ip, "10.70.9.1")
 check("lldpctl caps", neighbours["eno1"].capabilities, "Bridge,Router")
@@ -123,8 +126,28 @@ script = _capture_script(["eno1", "bond0.3674"], 65, "tcpdump")
 check("capture: one per iface", script.count("tcpdump -i"), 2)
 check("capture: several frames, not one", "-c 5" in script, True)
 check("capture: no bare customer-bridge match", "or (ether dst 01:80:c2:00:00:00)" in script, False)
-check("capture: bounded", "sleep 65" in script, True)
+# The window is now a ceiling, not a fixed wait: the capture stops once
+# every interface has produced a real frame, which is where most of a
+# scan's time used to go. The ceiling must still be in the script.
+check("capture: bounded by the window", "left=65" in script, True)
+check("capture: and stops early once every port has answered",
+      "have -ge $want" in script, True)
+check("capture: waiting for a frame, not for the file header",
+      "-gt 40" in script, True)
+check("capture: the whole window is still available on request",
+      "sleep 65" in _capture_script(["eno1"], 65, "tcpdump",
+                                    wait_it_out=True), True)
 check("capture: cleans up", "rm -rf $d" in script, True)
+check("capture: the window covers a CDP interval (60s) plus margin",
+      Options().seconds >= 75, True)
+check("capture: and the window is still the ceiling everywhere",
+      ("left=%d" % Options().seconds)
+      in _capture_script(["oam"], Options().seconds, "tcpdump"), True)
+check("capture: says so when the tool is not there",
+      "command -v tcpdump" in script, True)
+check("capture: the marker is never a literal the shell can echo back",
+      NO_TOOL_MARK in script, False)
+check("capture: but the host can still print it", "printf 'LF-NO%s" in script, True)
 
 HINT = """(vim.host.PhysicalNic.NetworkHint) [
    (vim.host.PhysicalNic.NetworkHint) {
@@ -233,8 +256,8 @@ check("supermicro port read", _smc.port, "1/1/13")
 check("a MAC never becomes the switch IP", _smc.mgmt_ip, "")
 check("and it is explained in the note", "only a MAC" in _smc.note, True)
 check("the MAC is still kept", _smc.extra.get("mgmt_mac"), "AA:BB:CC:DD:EE:22")
-SMC_OEM_IP = dict(SMC_OEM, ManagementAddressIPv4="10.71.243.1")
-check("a real IPv4 is taken", neighbor_from_lldp_block(SMC_OEM_IP).mgmt_ip, "10.71.243.1")
+SMC_OEM_IP = dict(SMC_OEM, ManagementAddressIPv4="198.51.100.71")
+check("a real IPv4 is taken", neighbor_from_lldp_block(SMC_OEM_IP).mgmt_ip, "198.51.100.71")
 
 check("redfish ignores our own LLDPTransmit",
       [neighbor_from_lldp_block(b) for b in hunt_lldp(HPE_PORT)], [None])
@@ -266,6 +289,7 @@ check("snmp caps bridge", _cap_text(bytes([0x28])), "Bridge,Router")
 check("normalise mac dash", normalise_mac("AA-BB-CC-DD-EE-01"), "aa:bb:cc:dd:ee:01")
 check("normalise mac dotted", normalise_mac("aabb.ccdd.ee01"), "aa:bb:cc:dd:ee:01")
 
+from linkfinder.engine import Options
 from linkfinder.model import Neighbor
 
 check("best_port prefers a name over an index",
@@ -292,6 +316,208 @@ check("prefer_lldp records every CDP port",
 check("prefer_lldp takes an IPv4 over link-local", _merged[0].mgmt_ip, "10.78.94.1")
 _only_cdp = prefer_lldp([Neighbor(local_iface="e0", proto="CDP", switch="s", port="p")])
 check("prefer_lldp keeps a lone CDP row", _only_cdp[0].port, "p")
+
+print()
+print("-- a bridge is not a bond --")
+from linkfinder.lag import bonds_from_ifaces
+from linkfinder.sshx import parse_bonds, parse_ifaces
+
+MIXED = """IF|bond0|aa:bb:cc:00:00:01|up|20000|0||1|eno1,eno2|1500
+KIND|bond0|bond
+IF|eno1|aa:bb:cc:00:00:02|up|10000|1|bond0|1||1500
+IF|eno2|aa:bb:cc:00:00:03|up|10000|1|bond0|1||1500
+IF|virbr0|aa:bb:cc:00:00:09|down|-1|0||0||1500
+KIND|virbr0|bridge
+IF|virbr0-nic|aa:bb:cc:00:00:0a|down|-1|0|virbr0|0||1500
+BOND|bond0|mode|802.3ad 4
+BOND|bond0|ad_partner_mac|00:00:00:00:00:00
+LEG|bond0|eno1|up|0
+LEG|bond0|eno2|down|3
+"""
+
+ifaces = parse_ifaces(MIXED)
+check("the kind of each master is read", ifaces["virbr0"].kind, "bridge")
+check("and a real bond says so", ifaces["bond0"].kind, "bond")
+found = bonds_from_ifaces(ifaces)
+check("only the bond is a bond", sorted(found), ["bond0"])
+check("a libvirt bridge is not reported as link aggregation",
+      "virbr0" in found, False)
+check("with its members", found["bond0"], ["eno1", "eno2"])
+
+detail = parse_bonds(MIXED)
+check("the mode is read", detail["bond0"]["mode"], "802.3ad 4")
+check("the partner is read", detail["bond0"]["ad_partner_mac"],
+      "00:00:00:00:00:00")
+check("each leg with its state and failures",
+      [(l["name"], l["mii"], l["failures"]) for l in detail["bond0"]["legs"]],
+      [("eno1", "up", "0"), ("eno2", "down", "3")])
+check("a host with no bond parses to nothing", parse_bonds("IF|eno1|x|up|1|1|||"), {})
+
+print()
+print("-- a machine, a guest, and the difference it makes --")
+from linkfinder.probe_linux import read_virtualisation
+
+check("a physical server says nothing about virtualisation",
+      read_virtualisation("DMI|sys_vendor|Supermicro\nVIRT|none").get("what", ""), "")
+check("KVM is recognised",
+      read_virtualisation("DMI|sys_vendor|QEMU\nVIRT|kvm")["what"],
+      "a KVM guest")
+check("VMware is recognised",
+      read_virtualisation("DMI|sys_vendor|VMware\nVIRT|vmware")["what"],
+      "a VMware guest")
+check("OpenStack is named for what it is, not just its hypervisor",
+      read_virtualisation("DMI|product_name|OpenStack Compute\nVIRT|kvm")["what"],
+      "an OpenStack instance")
+check("a container is not called a guest",
+      read_virtualisation("VIRT|lxc")["what"], "a container")
+check("something unheard of is still reported",
+      read_virtualisation("VIRT|weirdvisor")["what"], "a weirdvisor guest")
+check("the vendor is kept for the panel",
+      read_virtualisation("DMI|sys_vendor|QEMU\nVIRT|kvm")["sys_vendor"],
+      "QEMU")
+check("nothing in, nothing out", read_virtualisation(""), {})
+
+CUT = chr(0x2026)
+HEAD = "LINK   CHASSIS ID        SYSTEM NAME  PORT ID                 PORT DESCRIPTION"
+print()
+print("-- a column that ran out of room is not a port name --")
+from linkfinder.probe_linux import parse_networkctl as read_netctl, uncut
+
+check("a whole name is left alone", uncut("10GigabitEthernet 1/3"),
+      ("10GigabitEthernet 1/3", False))
+check("an ellipsis means it was cut", uncut("10GigabitEthern" + CUT),
+      ("10GigabitEthern", True))
+check("three dots mean the same", uncut("10GigabitEthern..."),
+      ("10GigabitEthern", True))
+check("nothing in, nothing out", uncut(""), ("", False))
+
+
+def netctl_row(**cells):
+    """Place each value where its header starts, the way networkctl does."""
+    line = [" "] * (len(HEAD) + 30)
+    for head, value in cells.items():
+        at = HEAD.index(head.replace("_", " "))
+        for i, ch in enumerate(value):
+            line[at + i] = ch
+    return "".join(line).rstrip()
+
+
+rows = read_netctl("\n".join([
+    HEAD,
+    netctl_row(LINK="eno1", CHASSIS_ID="aa:bb:cc:00:00:02", SYSTEM_NAME="sw2",
+               PORT_ID="1/1/42", PORT_DESCRIPTION="access"),
+    netctl_row(LINK="ens1f3", CHASSIS_ID="aa:bb:cc:00:00:01", SYSTEM_NAME="sw1",
+               PORT_ID="9", PORT_DESCRIPTION="10GigabitEthern" + CUT),
+    netctl_row(LINK="eno9", CHASSIS_ID="aa:bb:cc:00:00:03", SYSTEM_NAME="n/a",
+               PORT_ID="aa:bb:cc:00:00:03", PORT_DESCRIPTION="n/a"),
+    "",
+    "Capability Flags:",
+    "b - Bridge; r - Router",
+    "",
+    "3 neighbors listed."]))
+check("the legend after the table is not a neighbour", len(rows), 3)
+check("a name that fits is not flagged",
+      bool(rows[0].extra.get("networkctl_truncated")), False)
+check("the real port id is kept, short and whole", rows[1].port, "9")
+check("the cut description loses its ellipsis", rows[1].port_desc,
+      "10GigabitEthern")
+check("and the row is flagged as cut",
+      bool(rows[1].extra.get("networkctl_truncated")), True)
+check("with a note saying where to get the real one",
+      "read it from the switch" in (rows[1].note or ""), True)
+check("a literal n/a is not taken as a name", rows[2].switch, "")
+check("nor as a port description", rows[2].port_desc, "")
+
+print()
+print("-- a capture only counts when a capture came back --")
+check("a pcap came back", capture_landed("PCAP oam\nAAAA"), True)
+check("a toolbox prompt is not a capture",
+      capture_landed("toolbox-user:/# "), False)
+check("nor is the script echoed back at us",
+      capture_landed("d=$(mktemp -d /tmp/lf.XXXXXX)\nsleep 65"), False)
+check("nor is silence", capture_landed(""), False)
+check("nor is nothing at all", capture_landed(None), False)
+
+
+print()
+print("-- the whole BMC probe, for vendors we have no hardware for --")
+# Supermicro and HPE are exercised against real BMCs. There is no Dell iDRAC
+# within reach, so its branch is driven here instead - otherwise the only Dell
+# code that is ever run is the parser, and the probe around it could rot
+# unnoticed until somebody with an iDRAC tried it.
+from linkfinder.model import TargetResult
+from linkfinder.probe_redfish import probe_redfish
+
+# Shaped like a real iDRAC tree: the Dell switch-connection block lives on a
+# port under Chassis/NetworkAdapters/NetworkPorts, which is where the generic
+# crawl looks. (VENDOR_LLDP_PATHS["dell"] points at a COLLECTION and so can
+# never yield anything by itself - the crawl is what actually finds Dell.)
+IDRAC = {
+    "/redfish/v1": {"RedfishVersion": "1.13.0", "Oem": {"Dell": {}}},
+    "/redfish/v1/Chassis": {"Members": [
+        {"@odata.id": "/redfish/v1/Chassis/System.Embedded.1"}]},
+    "/redfish/v1/Chassis/System.Embedded.1": {
+        "SerialNumber": "DELLSN0001", "Model": "PowerEdge R650",
+        "Manufacturer": "Dell Inc."},
+    "/redfish/v1/Chassis/System.Embedded.1/NetworkAdapters": {"Members": [
+        {"@odata.id": "/redfish/v1/Chassis/System.Embedded.1/NetworkAdapters/NIC.Slot.1"}]},
+    "/redfish/v1/Chassis/System.Embedded.1/NetworkAdapters/NIC.Slot.1/NetworkPorts": {
+        "Members": [{"@odata.id": "/redfish/v1/Chassis/System.Embedded.1/"
+                                  "NetworkAdapters/NIC.Slot.1/NetworkPorts/NIC.Slot.1-1"}]},
+    "/redfish/v1/Chassis/System.Embedded.1/NetworkAdapters/NIC.Slot.1/"
+    "NetworkPorts/NIC.Slot.1-1": {
+        "Id": "NIC.Slot.1-1",
+        "AssociatedNetworkAddresses": ["AA:BB:CC:DD:EE:F0"],
+        "LinkStatus": "Up",
+        "Oem": {"Dell": {"DellSwitchConnection": {
+            "SwitchConnectionID": "aa:bb:cc:dd:ee:01",
+            "SwitchPortConnectionID": "Gi1/0/12"}}}},
+    "/redfish/v1/Systems": {"Members": [
+        {"@odata.id": "/redfish/v1/Systems/System.Embedded.1"}]},
+    "/redfish/v1/Systems/System.Embedded.1": {
+        "SerialNumber": "DELLSN0001", "Model": "PowerEdge R650"},
+    "/redfish/v1/Managers": {"Members": []},
+}
+
+
+class FakeIdrac(object):
+    """Answers like an iDRAC, and records any attempt to write to it."""
+
+    def __init__(self, *_a, **_k):
+        self.written = []
+
+    def get(self, path):
+        return IDRAC.get(path)
+
+    def members(self, path):
+        return [m["@odata.id"] for m in (IDRAC.get(path) or {}).get("Members", [])]
+
+    def patch(self, path, body):
+        self.written.append((path, body))
+        return False, "this test forbids writing"
+
+
+import linkfinder.probe_redfish as _rf
+_real = _rf.Redfish
+_made = []
+_rf.Redfish = lambda *a, **k: _made.append(FakeIdrac()) or _made[-1]
+try:
+    result = TargetResult(target="198.51.100.9", kind="bmc")
+    probe_redfish("198.51.100.9", "root", "calvin", result, allow_enable=False,
+                  log=lambda _m: None)
+finally:
+    _rf.Redfish = _real
+
+check("an iDRAC is recognised as Dell", result.kind, "bmc:dell")
+check("its serial is read", result.extra.get("hardware", {}).get("product_serial"),
+      "DELLSN0001")
+check("and the model with it",
+      result.extra.get("hardware", {}).get("product_name"), "PowerEdge R650")
+found = [n for n in result.neighbors if n.port]
+check("the switch port it reports is found", [n.port for n in found], ["Gi1/0/12"])
+check("with the switch's own address",
+      [n.chassis_id for n in found], ["aa:bb:cc:dd:ee:01"])
+check("and nothing was written to the BMC", _made[-1].written, [])
 
 print()
 if FAILURES:

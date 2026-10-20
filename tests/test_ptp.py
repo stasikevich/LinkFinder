@@ -76,20 +76,20 @@ check("a ptp4l without -i is not a port",
 print()
 print("-- pmc output --")
 PORT_DATA = """sending: GET PORT_DATA_SET
-\t507c6f.fffe.85109a-1 seq 0 RESPONSE MANAGEMENT PORT_DATA_SET
-\t\tportIdentity            507c6f.fffe.85109a-1
+\t021122.fffe.00009a-1 seq 0 RESPONSE MANAGEMENT PORT_DATA_SET
+\t\tportIdentity            021122.fffe.00009a-1
 \t\tportState               SLAVE
 \t\tlogMinDelayReqInterval  0
 """
 TIME_STATUS = """sending: GET TIME_STATUS_NP
 \t\tmaster_offset              -3
 \t\tgmPresent                  true
-\t\tgmIdentity                 000580.fffe.08355b
+\t\tgmIdentity                 025566.fffe.000001
 """
 port = apply_pmc(PtpPort(iface="enp23s0f2", domain=24), PORT_DATA, TIME_STATUS)
 check("state", port.state, "SLAVE")
-check("our own clock identity", port.port_identity, "507c6f.fffe.85109a-1")
-check("the grandmaster", port.gm_identity, "000580.fffe.08355b")
+check("our own clock identity", port.port_identity, "021122.fffe.00009a-1")
+check("the grandmaster", port.gm_identity, "025566.fffe.000001")
 check("offset is signed", port.offset_ns, -3)
 check("gmPresent", port.gm_present, True)
 check("summary reads like a status line", port.summary, "SLAVE dom 24 -3ns")
@@ -101,27 +101,27 @@ check("parse_pmc ignores the unindented echo line",
 print()
 print("-- clock identity is an EUI-64 of the MAC --")
 check("raw bytes to the printed form",
-      clock_identity(bytes.fromhex("507c6ffffe851098")), "507c6f.fffe.851098")
-check("and back to the MAC", clock_identity_to_mac("507c6f.fffe.851098"),
-      "50:7c:6f:85:10:98")
+      clock_identity(bytes.fromhex("021122fffe000098")), "021122.fffe.000098")
+check("and back to the MAC", clock_identity_to_mac("021122.fffe.000098"),
+      "02:11:22:00:00:98")
 check("ff:ff padding is also used by some vendors",
-      clock_identity_to_mac("00e0ed.ffff.f9b9b1"), "00:e0:ed:f9:b9:b1")
+      clock_identity_to_mac("023344.ffff.0000b1"), "02:33:44:00:00:b1")
 check("an identity not built from a MAC is not turned into one",
       clock_identity_to_mac("0102030405060708"), "")
 check("nonsense in, nothing out", clock_identity_to_mac("rubbish"), "")
 
 print()
 print("-- decoding PTP off the wire --")
-CLOCK = bytes.fromhex("00e0edfffef9b9b1")
-GM = bytes.fromhex("000580fffe08355b")
+CLOCK = bytes.fromhex("023344fffe0000b1")
+GM = bytes.fromhex("025566fffe000001")
 sync = decode_ptp(ptp_message(0x00, 24, CLOCK, 3))
 check("message type", sync["type"], "Sync")
 check("domain", sync["domain"], 24)
-check("source clock", sync["clock_identity"], "00e0ed.fffe.f9b9b1")
+check("source clock", sync["clock_identity"], "023344.fffe.0000b1")
 check("source port number", sync["port_number"], 3)
 announce = decode_ptp(ptp_message(0x0B, 24, CLOCK, 1, gm=GM))
 check("an Announce also carries the grandmaster", announce["gm_identity"],
-      "000580.fffe.08355b")
+      "025566.fffe.000001")
 check("a Sync does not pretend to", sync["gm_identity"], "")
 check("a v1 frame is refused", decode_ptp(b"\x00\x01" + bytes(40)), None)
 check("a short frame is refused", decode_ptp(b"\x00\x02"), None)
@@ -137,18 +137,18 @@ check("an LLDP frame is not PTP",
 
 print()
 print("-- folding a capture into peers --")
-frames = [ether(b"\x00\xe0\xed\xf9\xb9\xb1", ptp_message(0x00, 24, CLOCK)),
-          ether(b"\x00\xe0\xed\xf9\xb9\xb1", ptp_message(0x0B, 24, CLOCK, gm=GM)),
-          ether(b"\x50\x7c\x6f\x85\x10\x98", ptp_message(0x00, 24,
-                                                         bytes.fromhex("507c6ffffe851098")))]
-peers = peers_from_capture(pcap(frames), our_macs=["50:7c:6f:85:10:98"])
+frames = [ether(b"\x02\x33\x44\x00\x00\xb1", ptp_message(0x00, 24, CLOCK)),
+          ether(b"\x02\x33\x44\x00\x00\xb1", ptp_message(0x0B, 24, CLOCK, gm=GM)),
+          ether(b"\x02\x11\x22\x00\x00\x98", ptp_message(0x00, 24,
+                                                         bytes.fromhex("021122fffe000098")))]
+peers = peers_from_capture(pcap(frames), our_macs=["02:11:22:00:00:98"])
 check("our own transmissions are not peers", len(peers), 1)
-check("the peer is named by its clock", peers[0].clock_identity, "00e0ed.fffe.f9b9b1")
+check("the peer is named by its clock", peers[0].clock_identity, "023344.fffe.0000b1")
 check("both message types are remembered", sorted(peers[0].messages),
       ["Announce", "Sync"])
 check("frames are counted", peers[0].frames, 2)
 check("the grandmaster is picked up from the Announce", peers[0].gm_identity,
-      "000580.fffe.08355b")
+      "025566.fffe.000001")
 check("an empty capture gives no peers", peers_from_capture(pcap([])), [])
 
 print()
@@ -166,12 +166,12 @@ def host(target, iface, mac, clock, peers):
     return result
 
 
-A = "507c6f.fffe.851098"
-B = "507c6f.fffe.851077"
-C = "507c6f.fffe.8510a1"
+A = "021122.fffe.000098"
+B = "021122.fffe.000077"
+C = "021122.fffe.0000a1"
 
-pair = [host("10.0.0.1", "f0", "50:7c:6f:85:10:98", A, [B]),
-        host("10.0.0.2", "f3", "50:7c:6f:85:10:77", B, [A])]
+pair = [host("10.0.0.1", "f0", "02:11:22:00:00:98", A, [B]),
+        host("10.0.0.2", "f3", "02:11:22:00:00:77", B, [A])]
 name_peers(pair)
 first = pair[0].neighbors[0]
 check("a mutual one-to-one pair is called a likely direct cable",
@@ -181,24 +181,24 @@ check("and the far end is named by host and port", first.extra["ptp_peer"],
 check("the wording does not claim proof", "direct cable" in first.note, True)
 check("nor does it say proven", "proven" in first.note, False)
 
-shared = [host("10.0.0.1", "f0", "50:7c:6f:85:10:98", A, [B]),
-          host("10.0.0.2", "f3", "50:7c:6f:85:10:77", B, [A]),
-          host("10.0.0.3", "f1", "50:7c:6f:85:10:a1", C, [B])]
+shared = [host("10.0.0.1", "f0", "02:11:22:00:00:98", A, [B]),
+          host("10.0.0.2", "f3", "02:11:22:00:00:77", B, [A]),
+          host("10.0.0.3", "f1", "02:11:22:00:00:a1", C, [B])]
 name_peers(shared)
 check("one clock heard by two of our ports is no longer a cable",
       shared[0].neighbors[0].extra["ptp_peer_evidence"], "segment")
 check("and the row says a multicast frame proves no such thing",
       "does not prove a direct cable" in shared[0].neighbors[0].note, True)
 
-lonely = [host("10.0.0.1", "f0", "50:7c:6f:85:10:98", A, ["000580.fffe.08355b"])]
+lonely = [host("10.0.0.1", "f0", "02:11:22:00:00:98", A, ["025566.fffe.000001"])]
 name_peers(lonely)
 check("a clock we have never scanned is reported as the identity we heard",
-      lonely[0].neighbors[0].extra["ptp_peer"], "000580.fffe.08355b")
+      lonely[0].neighbors[0].extra["ptp_peer"], "025566.fffe.000001")
 check("with no directness claimed",
       lonely[0].neighbors[0].extra["ptp_peer_evidence"], "heard")
 
-quiet = [host("10.0.0.1", "f0", "50:7c:6f:85:10:98", A, [B]),
-         host("10.0.0.2", "f3", "50:7c:6f:85:10:77", B, [])]
+quiet = [host("10.0.0.1", "f0", "02:11:22:00:00:98", A, [B]),
+         host("10.0.0.2", "f3", "02:11:22:00:00:77", B, [])]
 name_peers(quiet)
 check("hearing is symmetric: the silent end is told who heard it",
       quiet[1].neighbors[0].extra["ptp_peer"], "10.0.0.1 f0")
@@ -207,11 +207,11 @@ check("and that is graded as heard-by, not as a cable",
 
 print()
 print("-- a resolved port keeps the answer LLDP already gave --")
-solid = host("10.0.0.1", "f0", "50:7c:6f:85:10:98", A, [B])
+solid = host("10.0.0.1", "f0", "02:11:22:00:00:98", A, [B])
 solid.neighbors[0].switch = "sw-1"
 solid.neighbors[0].port = "Eth1/1"
 solid.neighbors[0].note = ""
-name_peers([solid, host("10.0.0.2", "f3", "50:7c:6f:85:10:77", B, [A])])
+name_peers([solid, host("10.0.0.2", "f3", "02:11:22:00:00:77", B, [A])])
 check("the note is left alone", solid.neighbors[0].note, "")
 check("but the peer is still recorded", solid.neighbors[0].extra["ptp_peer"],
       "10.0.0.2 f3")
@@ -253,7 +253,7 @@ check("phc map parser ignores junk", parse_phc_map("eth0 ptp0\nrubbish\n"),
 
 print()
 print("-- describing a peer --")
-index = known_port_index([host("10.0.0.9", "eno5", "50:7c:6f:85:10:98", A, [])])
+index = known_port_index([host("10.0.0.9", "eno5", "02:11:22:00:00:98", A, [])])
 check("a MAC we scanned becomes a host and a port",
       describe_peer(PtpPeer(clock_identity=A), index), "10.0.0.9 eno5")
 check("one we did not stays the clock identity",
@@ -263,7 +263,7 @@ check("one we did not stays the clock identity",
 
 print()
 print("-- the Announce body, which is where the grandmaster really lives --")
-GM2 = bytes.fromhex("000580fffe08355b")
+GM2 = bytes.fromhex("025566fffe000001")
 
 
 def announce(gm, cls=6, accuracy=0x21, steps=2, source=0x20, p1=128, p2=128,
@@ -291,7 +291,7 @@ def announce(gm, cls=6, accuracy=0x21, steps=2, source=0x20, p1=128, p2=128,
 
 
 full = decode_ptp(announce(GM2))
-check("grandmaster identity", full["gm_identity"], "000580.fffe.08355b")
+check("grandmaster identity", full["gm_identity"], "025566.fffe.000001")
 check("clock class", full["gm_class"], 6)
 check("clock accuracy", full["gm_accuracy"], 0x21)
 check("priority1", full["gm_priority1"], 128)
@@ -303,7 +303,7 @@ check("no path trace unless the TLV is on", full["path_trace"], [])
 
 traced = decode_ptp(announce(GM2, trace=(GM2, CLOCK)))
 check("path trace lists the chain", traced["path_trace"],
-      ["000580.fffe.08355b", "00e0ed.fffe.f9b9b1"])
+      ["025566.fffe.000001", "023344.fffe.0000b1"])
 check("a Sync carries none of this", decode_ptp(ptp_message(0x00, 24, CLOCK)).get("gm_class"),
       None)
 
@@ -318,26 +318,26 @@ check("none means nothing", describe_clock_class(None), "")
 
 print()
 print("-- a switch is a device we can name --")
-check("LLDP separators do not matter", normalise_mac("00-05-80-08-35-5B"),
-      "00:05:80:08:35:5b")
-check("so does the Cisco form", normalise_mac("0005.8008.355b"),
-      "00:05:80:08:35:5b")
+check("LLDP separators do not matter", normalise_mac("02-55-66-00-00-01"),
+      "02:55:66:00:00:01")
+check("so does the Cisco form", normalise_mac("0255.6600.0001"),
+      "02:55:66:00:00:01")
 check("rubbish is not a MAC", normalise_mac("not-a-mac"), "")
 
 switch_side = TargetResult(target="198.51.100.10")
 switch_side.device_name = "node-a"
-nb = Neighbor(host="198.51.100.10", local_iface="f2", local_mac="50:7c:6f:85:10:9a",
-              switch="sw-core-1", chassis_id="00-05-80-08-35-5B", proto="LLDP")
+nb = Neighbor(host="198.51.100.10", local_iface="f2", local_mac="02:11:22:00:00:9a",
+              switch="sw-core-1", chassis_id="02-55-66-00-00-01", proto="LLDP")
 switch_side.neighbors.append(nb)
 index = known_port_index([switch_side])
 check("the switch chassis MAC is in the index",
-      index.get("00:05:80:08:35:5b"), ("sw-core-1", ""))
+      index.get("02:55:66:00:00:01"), ("sw-core-1", ""))
 check("our own NIC is still there",
-      index.get("50:7c:6f:85:10:9a"), ("node-a", "f2"))
+      index.get("02:11:22:00:00:9a"), ("node-a", "f2"))
 check("a grandmaster that is the switch gets named, not printed as hex",
-      describe_peer(PtpPeer(clock_identity="000580.fffe.08355b"), index), "sw-core-1")
+      describe_peer(PtpPeer(clock_identity="025566.fffe.000001"), index), "sw-core-1")
 
-peer = PtpPeer(clock_identity="507c6f.fffe.851077", gm_identity="000580.fffe.08355b",
+peer = PtpPeer(clock_identity="021122.fffe.000077", gm_identity="025566.fffe.000001",
                gm_class=6, gm_accuracy=0x21, steps_removed=2, time_source=0x20)
 told = describe_grandmaster(peer, index)
 check("the grandmaster line names the switch", told.startswith("sw-core-1"), True)
@@ -348,25 +348,25 @@ check("accuracy 0x21 is 100 ns, not 100 us - a thousandfold difference",
       "100 ns" in told, True)
 check("an accuracy code we do not encode stays a code",
       "accuracy 0x1b" in describe_grandmaster(
-          PtpPeer(gm_identity="000580.fffe.08355b", gm_accuracy=0x1B)), True)
+          PtpPeer(gm_identity="025566.fffe.000001", gm_accuracy=0x1B)), True)
 check("unknown accuracy is not reported at all",
       "accuracy" in describe_grandmaster(
-          PtpPeer(gm_identity="000580.fffe.08355b", gm_accuracy=0xFE)), False)
+          PtpPeer(gm_identity="025566.fffe.000001", gm_accuracy=0xFE)), False)
 check("nothing to say without an Announce", describe_grandmaster(PtpPeer()), "")
 
 print()
 print("-- asking the segment, which needs no credentials --")
 PMC_SEGMENT = """sending: GET DEFAULT_DATA_SET
-\t507c6f.fffe.851077-1 seq 0 RESPONSE MANAGEMENT DEFAULT_DATA_SET
+\t021122.fffe.000077-1 seq 0 RESPONSE MANAGEMENT DEFAULT_DATA_SET
 \t\ttwoStepFlag             1
 \t\tslaveOnly               1
 \t\tnumberPorts             1
 \t\tclockClass              255
 sending: GET PARENT_DATA_SET
-\t507c6f.fffe.851077-1 seq 1 RESPONSE MANAGEMENT PARENT_DATA_SET
-\t\tgrandmasterIdentity     000580.fffe.08355b
-\t000580.fffe.08355b-3 seq 2 RESPONSE MANAGEMENT PARENT_DATA_SET
-\t\tgrandmasterIdentity     000580.fffe.08355b
+\t021122.fffe.000077-1 seq 1 RESPONSE MANAGEMENT PARENT_DATA_SET
+\t\tgrandmasterIdentity     025566.fffe.000001
+\t025566.fffe.000001-3 seq 2 RESPONSE MANAGEMENT PARENT_DATA_SET
+\t\tgrandmasterIdentity     025566.fffe.000001
 """
 rows = parse_pmc_responses(PMC_SEGMENT)
 check("one entry per response block", len(rows), 3)
@@ -381,9 +381,9 @@ answers = query_segment(lambda _c: PMC_SEGMENT, "eth0", domain=24)
 check("responders are merged per clock", len(answers), 2)
 by_clock = {a["clock_identity"]: a for a in answers}
 check("both data sets land on one clock",
-      sorted(by_clock["507c6f.fffe.851077"]["datasets"]),
+      sorted(by_clock["021122.fffe.000077"]["datasets"]),
       ["DEFAULT_DATA_SET", "PARENT_DATA_SET"])
-line = describe_responder(by_clock["507c6f.fffe.851077"], index)
+line = describe_responder(by_clock["021122.fffe.000077"], index)
 check("a responder is described in words", "slave only" in line, True)
 check("and its grandmaster is named", "grandmaster sw-core-1" in line, True)
 
@@ -430,14 +430,14 @@ check("and named", vendor_only.vendor_trees, ["Cisco CISCO-PTP-MIB"])
 
 standard = read_switch_ptp_safely(FakePtpSwitch({
     PTPBASE + ".1.1.6.1.3.1.1.1": 6,
-    PTPBASE + ".1.1.6.1.9.1.1.1": b"" + bytes.fromhex("000580fffe08355b"),
+    PTPBASE + ".1.1.6.1.9.1.1.1": b"" + bytes.fromhex("025566fffe000001"),
     PTPBASE + ".1.1.5.1.4.1.1.1": b"grandmaster",
 }))
 check("a standard MIB is picked up", standard.supported, True)
 check("and named as the source", standard.source, "PTPBASE-MIB (RFC 8173)")
 check("tables are kept apart", sorted(standard.tables), ["default", "parent"])
 check("a binary value is rendered the way a clock identity is written",
-      standard.tables["default"]["1.9.1.1.1"], "00:05:80:ff:fe:08:35:5b")
+      standard.tables["default"]["1.9.1.1.1"], "02:55:66:ff:fe:00:00:01")
 check("the summary counts what was read", "3 object(s)" in standard.summary(), True)
 check("rendering mentions the switch", "sw-1" in render([standard]), True)
 
@@ -458,21 +458,21 @@ check("an SNMP blow-up is caught, not propagated",
 print()
 print("-- the offset comes from a standard data set, not a linuxptp one --")
 CURRENT = """sending: GET CURRENT_DATA_SET
-	507c6f.fffe.85109a-0 seq 0 RESPONSE MANAGEMENT CURRENT_DATA_SET
+	021122.fffe.00009a-0 seq 0 RESPONSE MANAGEMENT CURRENT_DATA_SET
 		stepsRemoved     1
 		offsetFromMaster -3.0
 		meanPathDelay    10.0
 """
 PARENT = """sending: GET PARENT_DATA_SET
-	507c6f.fffe.85109a-0 seq 0 RESPONSE MANAGEMENT PARENT_DATA_SET
-		parentPortIdentity                    000580.fffe.08355b-13
+	021122.fffe.00009a-0 seq 0 RESPONSE MANAGEMENT PARENT_DATA_SET
+		parentPortIdentity                    025566.fffe.000001-13
 		grandmasterPriority1                  128
 		gm.ClockClass                         6
 		gm.ClockAccuracy                      0x21
-		grandmasterIdentity                   000580.fffe.08355b
+		grandmasterIdentity                   025566.fffe.000001
 """
 PROPS = """sending: GET TIME_PROPERTIES_DATA_SET
-	507c6f.fffe.85109a-0 seq 0 RESPONSE MANAGEMENT TIME_PROPERTIES_DATA_SET
+	021122.fffe.00009a-0 seq 0 RESPONSE MANAGEMENT TIME_PROPERTIES_DATA_SET
 		currentUtcOffset      37
 		ptpTimescale          1
 		timeTraceable         1
@@ -489,11 +489,11 @@ check("and the source is named as the standard one", standard.source,
 check("mean path delay comes with it", standard.mean_path_delay_ns, 10)
 check("steps removed too", standard.steps_removed, 1)
 check("the grandmaster from PARENT_DATA_SET", standard.gm_identity,
-      "000580.fffe.08355b")
+      "025566.fffe.000001")
 check("with its class", standard.gm_class, 6)
 check("and accuracy parsed from hex", standard.gm_accuracy, 0x21)
 check("which port of the grandmaster we hang off", standard.parent_port,
-      "000580.fffe.08355b-13")
+      "025566.fffe.000001-13")
 check("UTC offset", standard.utc_offset, 37)
 check("time traceable", standard.time_traceable, True)
 check("frequency not", standard.frequency_traceable, False)
@@ -514,6 +514,49 @@ check("and is credited", both.source, "IEEE 1588 data sets")
 
 check("nothing at all leaves the port empty rather than guessing",
       apply_datasets(PtpPort(iface="f2"), {}).offset_ns, None)
+
+print("-- the daemon's own namespace --")
+# A host that runs ptp4l in a container has neither pmc nor the daemon's
+# socket of its own, and the plain call returns nothing rather than failing.
+# Ten real clock links were blank for exactly this reason.
+from linkfinder.ptp import ask_datasets, parse_ptp4l_processes
+
+PS = ("1871140 ptp4l -2 --uds_address=/run/ptp4l-a_slave -i ens3f3np3 "
+      "--domain=24 --clientOnly=1")
+spoken = parse_ptp4l_processes(PS)
+check("the process id is read off the list", spoken[0].pid, "1871140")
+check("along with its socket", spoken[0].uds, "/run/ptp4l-a_slave")
+
+asked = []
+
+
+def deaf(cmd):
+    """A host with no pmc of its own: the call just comes back empty."""
+    asked.append(cmd)
+    if "nsenter" not in cmd:
+        return ""
+    return "sending: GET X\n\tRESPONSE MANAGEMENT PARENT_DATA_SET\n"
+
+
+got = ask_datasets(deaf, spoken[0])
+check("the host is tried first", "nsenter" in asked[0], False)
+check("then the daemon's own namespace", "nsenter -t 1871140 -m -n" in asked[1],
+      True)
+check("and that is where the answer came from",
+      all("nsenter" in c for c in asked[1:]), True)
+check("every data set is collected", len(got), 5)
+
+noisy = []
+
+
+def hears(cmd):
+    noisy.append(cmd)
+    return "sending: GET X\n\tRESPONSE MANAGEMENT PARENT_DATA_SET\n"
+
+
+ask_datasets(hears, spoken[0])
+check("a host that can answer is never entered",
+      any("nsenter" in c for c in noisy), False)
 
 print()
 if FAILURES:

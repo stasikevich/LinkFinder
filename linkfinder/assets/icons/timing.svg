@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="8 8 48 48" width="48" height="48" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<path d="M23 20a9 9 0 0 1 18 0z" fill="__ACCENT__" fill-opacity="0.25" stroke="__ACCENT__" stroke-width="2.2"/>
+<path d="M32 20L32 28" stroke="__ACCENT__" stroke-width="2" stroke-opacity="0.8"/>
+<rect x="11" y="28" width="42" height="24" rx="3" fill="#ffffff" stroke="__ACCENT__" stroke-width="2.4"/>
+<rect x="11" y="28" width="42" height="5.5" rx="3" fill="__ACCENT__" fill-opacity="0.16"/>
+<circle cx="24" cy="42" r="7" fill="#ffffff" stroke="__ACCENT__" stroke-width="2.2"/>
+<path d="M24 37.5v4.5l3.5 2.2" stroke="__ACCENT__" stroke-width="2"/>
+<rect x="36" y="38" width="12" height="3" rx="1.2" fill="__ACCENT__" fill-opacity="0.45"/>
+<rect x="36" y="43.5" width="8" height="3" rx="1.2" fill="__ACCENT__" fill-opacity="0.3"/>
+</svg>

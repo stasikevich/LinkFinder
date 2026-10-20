@@ -98,11 +98,11 @@ check("and the address change itself is reported",
 
 print()
 print("-- the things an engineer is actually watching for --")
-clock = compare(site(gm="000580.fffe.08355b"), site(gm="008015.fffe.4290d0"))
+clock = compare(site(gm="025566.fffe.000001"), site(gm="02aabb.fffe.000002"))
 fields = clock.of_kind(DEVICE_CHANGED)[0].fields
 check("a grandmaster change is caught", fields[0][0], "ptp grandmaster on eno1")
 check("with both values", (fields[0][1], fields[0][2]),
-      ("000580.fffe.08355b", "008015.fffe.4290d0"))
+      ("025566.fffe.000001", "02aabb.fffe.000002"))
 
 broke = compare(site(mtu_verdict="match"), site(mtu_verdict="mismatch"))
 check("a link that went bad is reported", len(broke.of_kind("link changed")), 1)

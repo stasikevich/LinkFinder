@@ -1,0 +1,5 @@
+# Shell scripts must keep LF or Linux reports 'bad interpreter'.
+*.sh text eol=lf
+*.ps1 text eol=crlf
+*.py text eol=lf
+*.md text eol=lf

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 NUMERIC = re.compile(r"^[\d.]+$")
 HOSTNAME = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$")
@@ -36,6 +36,7 @@ class Target:
     user: str = ""
     password: str = ""
     problem: str = ""
+    setup: str = ""
 
     @property
     def has_login(self) -> bool:
@@ -76,21 +77,54 @@ def parse_one(value: str) -> Target:
     return Target(host=host, user=user, password=password, problem=_check(host))
 
 
+SECTION = re.compile(r"^\[(.+)\]$")
+
+
+def _opened(line: str) -> List[str]:
+    """One list line as the addresses it stands for.
+
+    A plain host comes back as itself. A network or a run of addresses
+    comes back as the addresses in it, the same way one typed into Target
+    does - the expansion used to happen on that path only.
+    """
+    from .ranges import expand_all
+
+    opened, _said, _refused = expand_all([line])
+    return opened or [line]
+
+
 def parse(values: List[str], targets_file: str = "") -> List[Target]:
-    """Everything the user listed, in order, each with its own verdict."""
-    raw: List[str] = []
+    """Everything the user listed, in order, each with its own verdict.
+
+    A line of the form [name] in the file opens a setup, and every address
+    under it belongs to that setup until the next one. A file without any
+    such line behaves exactly as it did before.
+    """
+    raw: List[Tuple[str, str]] = []
     for value in values or []:
-        raw.extend(part for part in (value or "").replace(",", " ").split() if part)
+        raw.extend((part, "") for part in (value or "").replace(",", " ").split() if part)
     if targets_file:
+        setup = ""
         with open(targets_file, "r", encoding="utf-8") as handle:
             for line in handle:
                 line = line.split("#")[0].strip()
-                if line:
-                    raw.append(line)
+                if not line:
+                    continue
+                heading = SECTION.match(line)
+                if heading:
+                    setup = heading.group(1).strip()
+                    continue
+                # A network written into a list file was refused as "not an
+                # address", while the very same text typed into Target was
+                # opened out into addresses. A list file is exactly where
+                # somebody writes a subnet, so both are read the same way
+                # and the setup it was listed under carries across.
+                raw.extend((part, setup) for part in _opened(line))
     out: List[Target] = []
     seen = set()
-    for item in raw:
+    for item, setup in raw:
         target = parse_one(item)
+        target.setup = setup
         if target.host and target.host in seen:
             continue
         if target.host:
@@ -107,6 +141,12 @@ def split(values: List[str], targets_file: str = ""
     bad = [t for t in parsed if t.problem]
     logins = {t.host: (t.user, t.password) for t in good if t.has_login}
     return [t.host for t in good], logins, bad
+
+
+def setups(values: List[str], targets_file: str = "") -> Dict[str, str]:
+    """Which setup each address was listed under, for the ones that were."""
+    return {t.host: t.setup for t in parse(values, targets_file)
+            if t.host and t.setup and not t.problem}
 
 
 def complain(bad: List[Target]) -> List[str]:

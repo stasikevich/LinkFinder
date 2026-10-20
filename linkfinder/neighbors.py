@@ -42,7 +42,18 @@ NOS_HINTS = (
 
 def classify_kind(result_kind: str = "", capabilities: str = "", sys_desc: str = "",
                   proto: str = "") -> str:
-    """Capabilities are authoritative when present; otherwise fall back to text."""
+    """What the device is, which is not always what it is doing.
+
+    Capabilities used to settle it outright, and that put an Ubuntu virtual
+    machine on the map as a router, with a router's icon, beside the real
+    ones - true in the sense that it forwards packets, useless to anyone
+    reading the picture. A Linux server with ip_forward on is a server. So
+    what the system calls itself is read first, and the capability bits
+    answer only where it said nothing.
+
+    Wireless and telephone stay above it: those name the device, not
+    something it happens to be doing.
+    """
     kind = (result_kind or "").lower()
     if kind.startswith("bmc"):
         return KIND_BMC
@@ -56,17 +67,18 @@ def classify_kind(result_kind: str = "", capabilities: str = "", sys_desc: str =
         return KIND_AP
     if "telephone" in caps:
         return KIND_PHONE
+
+    text = (sys_desc or "").lower()
+    for pattern, guessed in NOS_HINTS:
+        if re.search(pattern, text):
+            return guessed
+
     if "bridge" in caps:
         return KIND_SWITCH
     if "router" in caps:
         return KIND_ROUTER
     if "station" in caps:
         return KIND_HOST
-
-    text = (sys_desc or "").lower()
-    for pattern, guessed in NOS_HINTS:
-        if re.search(pattern, text):
-            return guessed
     return KIND_UNKNOWN
 
 
@@ -79,6 +91,7 @@ class DeviceView:
     kind: str = KIND_UNKNOWN
     name: str = ""
     chassis_id: str = ""
+    serial: str = ""
     mgmt_ips: List[str] = field(default_factory=list)
     vendor: str = ""
     error: str = ""
@@ -89,12 +102,18 @@ class DeviceView:
 
 def view_from_result(target: str, result: TargetResult) -> DeviceView:
     usable = [n for n in result.neighbors if n.resolved]
+    # Reached means we got in and learned something - a name, its ports, any
+    # row at all. It does not mean a neighbour protocol answered. A host whose
+    # ports carry no LLDP is not unreachable, and calling it that on the map
+    # is simply false: we read its optics and its MACs to say so.
+    reached = bool(usable) or bool(result.device_name) or bool(result.neighbors)
     view = DeviceView(
         target=target,
-        reachable=bool(usable) or not result.error,
+        reachable=reached or not result.error,
         kind=classify_kind(result_kind=result.kind, sys_desc=result.device_descr),
         name=result.device_name or "",
         chassis_id=result.device_chassis or "",
+        serial=result.device_serial or "",
         mgmt_ips=[target],
         vendor=result.device_descr or "",
         error=result.error or "",
@@ -102,7 +121,7 @@ def view_from_result(target: str, result: TargetResult) -> DeviceView:
         neighbours=usable,
         extra=dict(getattr(result, "extra", {}) or {}),
     )
-    if not usable and result.error:
+    if not reached and result.error:
         view.reachable = False
     return view
 
@@ -125,10 +144,18 @@ def collect_via_snmp(target: str, opts,
         return None
     if log:
         log("  SNMP on %s: %s, %d neighbour(s)" % (target, switch.name, len(peers)))
+    from . import hardware
+    from .snmp import as_text
+    facts = hardware.read_snmp(lambda oid: {
+        index: as_text(value)
+        for index, value in switch.client.walk_dict(oid).items()})
     view = DeviceView(
         target=target, reachable=True, kind=KIND_SWITCH, name=switch.name,
-        chassis_id=switch.local_chassis_id(), mgmt_ips=[target], vendor=switch.descr,
+        chassis_id=switch.local_chassis_id(), serial=hardware.serial_of(facts),
+        mgmt_ips=[target], vendor=switch.descr,
         sources=["snmp"], neighbours=peers)
+    if facts:
+        view.extra["hardware"] = facts
     if getattr(opts, "port_health", False):
         from .port_health import collect_safely
         report = collect_safely(switch, interval=getattr(opts, "port_health_interval", 3.0),
@@ -167,7 +194,8 @@ def credential_sets(opts, target: str = "") -> List:
     return sequence
 
 
-def collect_device(target: str, opts, log: Optional[Callable[[str], None]] = None) -> DeviceView:
+def collect_device(target: str, opts, log: Optional[Callable[[str], None]] = None,
+                   cancel=None) -> DeviceView:
     """Interrogate one device with the existing probes and normalise the answer.
 
     A second credential set is only tried when the first was actively rejected:
@@ -175,6 +203,7 @@ def collect_device(target: str, opts, log: Optional[Callable[[str], None]] = Non
     not spent on a device that simply is not answering.
     """
     from .engine import discover_one
+    from . import cancel as _cancel
 
     try:
         quick = collect_via_snmp(target, opts, log=log)
@@ -187,12 +216,23 @@ def collect_device(target: str, opts, log: Optional[Callable[[str], None]] = Non
     view = DeviceView(target=target, reachable=False, mgmt_ips=[target],
                       error="no credentials to try")
     for index, creds in enumerate(attempts):
+        if _cancel.cancelled(cancel):
+            view.error = "stopped"
+            break
         trial = dataclasses.replace(opts, ssh=creds) if index else opts
         try:
-            result = discover_one(target, trial, log=log)
+            result = discover_one(target, trial, log=log, cancel=cancel)
         except Exception as exc:
+            if _cancel.cancelled(cancel):
+                return DeviceView(target=target, reachable=False,
+                                  mgmt_ips=[target], error="stopped")
             return DeviceView(target=target, reachable=False, mgmt_ips=[target],
                               error="%s: %s" % (type(exc).__name__, exc))
+        # Stop closes the SSH mid-probe, so the steps after it fail; that is not
+        # a fault to report - the device was simply not finished. Say "stopped".
+        if _cancel.cancelled(cancel):
+            return DeviceView(target=target, reachable=False, mgmt_ips=[target],
+                              error="stopped")
         view = view_from_result(target, result)
         if view.reachable:
             if index and log:

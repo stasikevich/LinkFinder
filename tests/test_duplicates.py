@@ -22,10 +22,10 @@ def check(label, got, want):
     print("%-62s %s" % (label, "ok" if got == want else "FAIL"))
 
 
-SAMPLE = """198.51.100.251 dev eno1 lladdr 18:7a:3b:17:54:00 STALE
+SAMPLE = """198.51.100.251 dev eno1 lladdr aa:bb:cc:11:54:00 STALE
 198.51.100.9 dev eno1  FAILED
 198.51.100.8 dev eno1  INCOMPLETE
-198.51.100.1 dev eno1 lladdr 12:01:00:00:01:00 DELAY
+198.51.100.1 dev eno1 lladdr aa:bb:cc:11:01:00 DELAY
 198.51.100.7 dev eno1 lladdr 00:00:00:00:00:00 STALE
 224.0.0.251 dev eno1 lladdr 01:00:5e:00:00:fb STALE
 2001:db8::1 dev eno1 lladdr 02:00:00:00:00:01 REACHABLE
@@ -41,7 +41,7 @@ check("nor is INCOMPLETE", "198.51.100.8" in got, False)
 check("an all-zero MAC is not an owner", "198.51.100.7" in got, False)
 check("multicast is not a neighbour", "224.0.0.251" in got, False)
 check("the MAC is lower-cased", got["198.51.100.251"]["mac"],
-      "18:7a:3b:17:54:00")
+      "aa:bb:cc:11:54:00")
 check("the state travels with it", got["198.51.100.1"]["state"], "DELAY")
 check("and the interface", got["198.51.100.1"]["dev"], "eno1")
 check("IPv6 works too", got["2001:db8::1"]["mac"], "02:00:00:00:00:01")

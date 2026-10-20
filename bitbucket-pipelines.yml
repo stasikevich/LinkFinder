@@ -1,0 +1,89 @@
+# What a build machine must agree with before anything is published.
+#
+# The order is deliberate. The site-reference gate runs FIRST and alone: this
+# repository is hosted, so a lab address or device name reaching it is not
+# untidiness, it is a disclosure. Everything else is pointless if that fails.
+#
+# node is installed on purpose. The page's own script is executed under stubs
+# to catch a value used before it exists - which parses perfectly and then
+# blanks the whole map. LINKFINDER_REQUIRE_NODE turns that check from
+# "skipped when unavailable" into an error, because a check that quietly
+# disappears is not a check.
+#
+# Idea, design and architecture by Stas Mitin.
+# Copyright (c) 2026 Stas Mitin. SPDX-License-Identifier: MIT
+
+image: python:3.10-slim
+
+definitions:
+  steps:
+    - step: &no-site-refs
+        name: No lab references in the repository
+        script:
+          - python tools/no_site_refs.py
+
+    - step: &checks
+        name: Every check, with the runtime gates compulsory
+        script:
+          - apt-get update -qq && apt-get install -y --no-install-recommends nodejs
+          - pip install --quiet -r requirements.txt
+          - export LINKFINDER_REQUIRE_NODE=1
+          # Run them all and report every failure, rather than stopping at
+          # the first: one run should say everything that is wrong.
+          - |
+            failed=""
+            for suite in tests/test_*.py; do
+              echo "== $suite"
+              python "$suite" || failed="$failed $suite"
+            done
+            if [ -n "$failed" ]; then
+              echo ""
+              echo "FAILED:$failed"
+              exit 1
+            fi
+        caches:
+          - pip
+
+    - step: &guide
+        name: The guide builds from the program itself
+        script:
+          - pip install --quiet -r requirements.txt
+          - python tools/make_help.py
+          # A flag that exists and is not documented fails here.
+          - python tests/test_help.py
+        artifacts:
+          - docs/help.html
+        caches:
+          - pip
+
+    - step: &linux-binary
+        name: Build the Linux binary
+        script:
+          - apt-get update -qq && apt-get install -y --no-install-recommends binutils
+          - pip install --quiet -r requirements.txt pyinstaller
+          # build.sh refuses to produce a GUI binary without tkinter rather
+          # than shipping one that fails only when somebody opens it.
+          - ./build.sh open
+          - ls -l dist/
+        artifacts:
+          - dist/linkfinder
+        caches:
+          - pip
+
+pipelines:
+  default:
+    - step: *no-site-refs
+    - parallel:
+        - step: *checks
+        - step: *guide
+  branches:
+    main:
+      - step: *no-site-refs
+      - parallel:
+          - step: *checks
+          - step: *guide
+      - step: *linux-binary
+  pull-requests:
+    '**':
+      - step: *no-site-refs
+      - step: *checks

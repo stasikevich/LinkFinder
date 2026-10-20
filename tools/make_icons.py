@@ -23,8 +23,13 @@ VIEWBOX = {
     "router": (0, 14, 64, 36),
     "bmc": (10, 8, 44, 50),
     "ap": (7, 9, 50, 47),
+    "radio": (8, 8, 48, 48),
     "phone": (6, 14, 52, 43),
     "unknown": (8, 10, 48, 44),
+    "clock": (6, 6, 52, 52),
+    "timing": (8, 8, 48, 48),
+    "serial": (6, 22, 52, 22),
+    "peripheral": (10, 14, 44, 34),
 }
 
 
@@ -120,6 +125,39 @@ def ap():
     return s
 
 
+def radio():
+    """A remote unit: a sealed box with fibre below and the air above."""
+    s = ""
+    for r, op in ((15, 0.3), (10, 0.6)):
+        s += ('<path d="M%s 22A%s %s 0 0 1 %s 22" stroke="%s" '
+              'stroke-width="2.2" stroke-opacity="%s"/>\n'
+              % (32 - r, r, r, 32 + r, A, op))
+    s += body(16, 26, 32, 28, 3, 2.4)
+    s += fill(16, 26, 32, 6, 3, 0.16)
+    s += line(32, 22, 32, 26, 2, 0.8)
+    for row, top in enumerate((36.0, 44.0)):
+        for col in range(2):
+            s += fill(21 + col * 11, top, 7, 5, 1.0, 0.55 - row * 0.2)
+    return s
+
+
+def timing():
+    """A clock appliance: an antenna over a box with a face and a rack of ports."""
+    dome = ('<path d="M23 20a9 9 0 0 1 18 0z" fill="%s" fill-opacity="0.25" '
+            'stroke="%s" stroke-width="2.2"/>' % (A, A))
+    face = ('<circle cx="24" cy="42" r="7" fill="#ffffff" stroke="%s" '
+            'stroke-width="2.2"/>' % A)
+    hands = '<path d="M24 37.5v4.5l3.5 2.2" stroke="%s" stroke-width="2"/>' % A
+    s = dome + chr(10)
+    s += line(32, 20, 32, 28, 2, 0.8)
+    s += body(11, 28, 42, 24, 3, 2.4)
+    s += fill(11, 28, 42, 5.5, 3, 0.16)
+    s += face + chr(10) + hands + chr(10)
+    s += fill(36, 38, 12, 3, 1.2, 0.45)
+    s += fill(36, 43.5, 8, 3, 1.2, 0.3)
+    return s
+
+
 def phone():
     s = body(9, 33, 46, 21, 3.5, 2.4)
     s += fill(31, 38, 18, 11, 1.8, 0.3)
@@ -142,8 +180,47 @@ def unknown():
     return s
 
 
+def clock():
+    """A clock, for the layer where the only question is who holds the time."""
+    return ('<circle cx="32" cy="32" r="22" fill="#ffffff" stroke="%s" '
+            'stroke-width="5"/>\n'
+            '<path d="M32 17v16l10 7" stroke="%s" stroke-width="5"/>\n'
+            % (A, A))
+
+
+def serial():
+    """A console lead: a USB-A shell, a cord, and the 9-pin end it becomes."""
+    s = body(8, 25, 15, 14, 2, 2.4)
+    s += fill(11, 29, 9, 2.6, 1, 0.45)
+    s += fill(11, 33.5, 9, 2.6, 1, 0.3)
+    s += ('<path d="M23 32h10c4 0 4 6 8 6h3" stroke="%s" stroke-width="2.2" '
+          'fill="none"/>\n' % A)
+    s += ('<path d="M44 30h10l-2.5 12h-5z" fill="#ffffff" stroke="%s" '
+          'stroke-width="2.2" stroke-linejoin="round"/>\n' % A)
+    for i in range(4):
+        s += led(46.5 + i * 2.2, 34, 0.9, 0.75)
+    return s
+
+
+def peripheral():
+    """Anything else on the bus: a small box wearing the USB trident."""
+    s = body(14, 18, 36, 28, 4, 2.4)
+    s += fill(14, 18, 36, 5.5, 4, 0.16)
+    s += '<path d="M32 40V27" stroke="%s" stroke-width="2.2"/>\n' % A
+    s += ('<path d="M32 33l-6-5m6 9l6-6" stroke="%s" stroke-width="2.2" '
+          'fill="none"/>\n' % A)
+    s += led(32, 25.5, 2.2, 0.9)
+    s += led(26, 27.5, 1.6, 0.7)
+    s += ('<rect x="36.6" y="29.6" width="3.2" height="3.2" fill="%s" '
+          'fill-opacity="0.7"/>\n' % A)
+    return s
+
+
 ICONS = {"switch": switch, "host": server, "router": router, "bmc": bmc,
-         "ap": ap, "phone": phone, "unknown": unknown}
+         "ap": ap, "radio": radio, "phone": phone, "unknown": unknown,
+         "timing": timing, "serial": serial, "peripheral": peripheral,
+         "clock": clock}
+
 
 for name, draw in ICONS.items():
     path = os.path.join(OUT, name + ".svg")

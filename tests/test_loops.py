@@ -156,6 +156,47 @@ check("and says so outright",
 check("nothing at all renders as nothing", render([], []), "")
 
 print()
+print("-- a ring only counts where traffic could go round it --")
+from linkfinder.loops import examine as examine_rings, forwards
+from linkfinder.topology import Topology as Topo
+
+
+def triangle(middle_kind, bridges=None):
+    t = Topo(seed="x")
+    one = t.add_node(chassis_id="aa:bb:cc:00:00:01", name="sw1", kind="switch",
+                     state="scanned")
+    two = t.add_node(chassis_id="aa:bb:cc:00:00:02", name="sw2", kind="switch",
+                     state="scanned")
+    mid = t.add_node(mgmt_ip="198.51.100.9", name="mid", kind=middle_kind,
+                     state="scanned")
+    if bridges:
+        mid.extra["bridges"] = bridges
+    for a, b in ((one, two), (two, mid), (mid, one)):
+        t.add_edge(a=a.id, a_iface="p", b=b.id, b_iface="q", proto="LLDP",
+                   source="t")
+    return t
+
+
+check("three switches in a ring is a ring",
+      len(examine_rings(triangle("switch"))), 1)
+check("the same ring through a plain host is not",
+      len(examine_rings(triangle("host"))), 0)
+check("but it is again once that host runs a bridge",
+      len(examine_rings(triangle("host", bridges=["br0"]))), 1)
+check("a router forwards too", len(examine_rings(triangle("router"))), 1)
+check("a device we never identified is not assumed to be an endpoint",
+      len(examine_rings(triangle("unknown"))), 1)
+check("a BMC is an endpoint, so no ring through it",
+      len(examine_rings(triangle("bmc"))), 0)
+
+plain = Topo(seed="x")
+host = plain.add_node(mgmt_ip="198.51.100.1", name="h", kind="host",
+                      state="scanned")
+check("a host with no bridge does not forward", forwards(host), False)
+host.extra["bridges"] = ["br0"]
+check("with one, it does", forwards(host), True)
+
+print()
 if FAILURES:
     print("%d FAILURES" % len(FAILURES))
     for line in FAILURES:

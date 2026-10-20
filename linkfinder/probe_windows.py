@@ -16,8 +16,10 @@ import tempfile
 import time
 from typing import Callable, List, Optional, Tuple
 
+from . import cancel as _cancel
+from . import handsets, hardware, serialports
 from .decode import neighbors_from_capture
-from .model import Neighbor, ProbeAttempt, TargetResult
+from .model import ProbeAttempt, TargetResult
 from .proc import run_quiet
 from .sshx import Ssh
 
@@ -43,10 +45,35 @@ def _run_local(cmd: str, timeout: int) -> Tuple[int, str]:
 
 
 def probe_windows_local(result: TargetResult, seconds: int = 65,
-                        log: Optional[Callable[[str], None]] = None) -> TargetResult:
+                        log: Optional[Callable[[str], None]] = None,
+                        read_serial: bool = False,
+                        serial_baud: int = 115200, cancel=None) -> TargetResult:
     say = log or (lambda _m: None)
     result.kind = "windows"
     started = time.time()
+    name, macs = _windows_identity(lambda cmd: _run_local(cmd, 30)[1])
+    if name and not result.device_name:
+        result.device_name = name
+    if macs:
+        result.extra.setdefault("macs", {}).update(macs)
+    # Before the pktmon gate: reading which COM ports exist needs no
+    # Administrator and no capture, so an un-elevated run still answers
+    # "which port is the radio on".
+    # The chassis tells a bench NUC/desktop (where a radio console cable is)
+    # from a rack server (where it is not), so the server's ports are not opened.
+    hardware.attach(result, hardware.read_windows(lambda cmd: _run_local(cmd, 30)[1]), say)
+    found_serial = serialports.read_windows(lambda cmd: _run_local(cmd, 30)[1])
+    if read_serial and found_serial:
+        from .baked import radio_creds
+        say("  asking the radio console port(s) who they are at %d baud" % serial_baud)
+        serialports.capture(lambda cmd: _run_local(cmd, 40)[1], found_serial,
+                            platform="windows", baud=serial_baud, seconds=4,
+                            creds=radio_creds(), say=say,
+                            hardware=result.extra.get("hardware"), cancel=cancel)
+    serialports.attach(result, found_serial, say)
+    if _cancel.cancelled(cancel):
+        result.error = "stopped"
+        return result
     rc, _out = _run_local("where pktmon", 15)
     if rc != 0:
         result.error = ("pktmon is not on this machine (it ships with Windows 10 / "
@@ -64,7 +91,12 @@ def probe_windows_local(result: TargetResult, seconds: int = 65,
     pcapng = os.path.join(workdir, "linkfinder.pcapng")
     for cmd in _pktmon_commands(workdir, seconds):
         if cmd.startswith("__SLEEP__"):
-            time.sleep(int(cmd.split("__SLEEP__")[1]))
+            # Stop cuts the capture short: leave pktmon clean and bail now.
+            if _cancel.sleep(int(cmd.split("__SLEEP__")[1]), cancel):
+                _run_local("pktmon stop", 30)
+                _run_local("pktmon filter remove", 30)
+                result.error = "stopped"
+                return result
             continue
         rc, out = _run_local(cmd, seconds + 60)
         if rc != 0 and "etl2pcap" in cmd:
@@ -73,8 +105,12 @@ def probe_windows_local(result: TargetResult, seconds: int = 65,
     found = 0
     if os.path.exists(pcapng):
         with open(pcapng, "rb") as handle:
+            # The local port is left empty on purpose. pktmon listens to every
+            # adapter at once, so which one heard a frame is not known - and
+            # "(pktmon: all adapters)" was being drawn on the map as though it
+            # were the name of a port. Not knowing is said by saying nothing;
+            # the note below explains it where there is room to read it.
             for nb in neighbors_from_capture(handle.read()):
-                nb.local_iface = nb.local_iface or "(pktmon: all adapters)"
                 nb.source = "pktmon"
                 nb.note = "pktmon captures all adapters at once; match by switch port description"
                 result.add(nb)
@@ -86,15 +122,84 @@ def probe_windows_local(result: TargetResult, seconds: int = 65,
     return result
 
 
+def _win_mac(value: str) -> str:
+    hexes = re.findall(r"[0-9a-fA-F]{2}", str(value or ""))
+    return ":".join(h.lower() for h in hexes) if len(hexes) == 6 else ""
+
+
+def _windows_identity(run: Callable[[str], str]):
+    """The host's own name and NIC MACs - so it is a named node, and the switch
+    that reports it by MAC merges onto it instead of standing up a second box."""
+    name = ""
+    try:
+        name = (run("hostname") or "").strip().splitlines()[0].strip()
+    except Exception:
+        pass
+    macs = {}
+    ps = ('powershell -NoProfile -Command "$ErrorActionPreference=\'SilentlyContinue\';'
+          ' Get-NetAdapter | Where-Object Status -eq Up |'
+          ' ForEach-Object { $_.Name + \'=\' + $_.MacAddress }"')
+    try:
+        for line in (run(ps) or "").splitlines():
+            if "=" in line:
+                iface, _, mac = line.partition("=")
+                mac = _win_mac(mac)
+                if mac:
+                    macs[iface.strip()] = mac
+    except Exception:
+        pass
+    return name, macs
+
+
 def probe_windows_over_ssh(ssh: Ssh, result: TargetResult, seconds: int = 65,
-                           log: Optional[Callable[[str], None]] = None) -> TargetResult:
+                           log: Optional[Callable[[str], None]] = None,
+                           adb: bool = False, adb_path: str = "adb",
+                           read_serial: bool = False,
+                           serial_baud: int = 115200, cancel=None) -> TargetResult:
     say = log or (lambda _m: None)
     result.kind = "windows"
     started = time.time()
-    rc, out, _err = ssh.run("pktmon --version", timeout=20)
+    name, macs = _windows_identity(lambda cmd: ssh.run(cmd, timeout=30)[1])
+    if name and not result.device_name:
+        result.device_name = name
+    if macs:
+        result.extra.setdefault("macs", {}).update(macs)
+    # Before the pktmon gate on purpose: a NUC whose session may not drive
+    # pktmon can still say which handsets are plugged into it.
+    hardware.attach(result, hardware.read_windows(
+        lambda cmd: ssh.run(cmd, timeout=60)[1]), say)
+
+    attached = handsets.collect(lambda cmd: ssh.run(cmd, timeout=90)[1], say,
+                                windows=True, adb=adb, adb_path=adb_path)
+    if attached:
+        result.extra["usb"] = attached
+
+    found_serial = serialports.read_windows(lambda cmd: ssh.run(cmd, timeout=60)[1])
+    if read_serial and found_serial:
+        from .baked import radio_creds
+        say("  asking the radio console port(s) who they are at %d baud" % serial_baud)
+        serialports.capture(lambda cmd: ssh.run(cmd, timeout=40)[1], found_serial,
+                            platform="windows", baud=serial_baud, seconds=4,
+                            creds=radio_creds(), say=say,
+                            hardware=result.extra.get("hardware"), cancel=cancel)
+    serialports.attach(result, found_serial, say)
+    if _cancel.cancelled(cancel):
+        result.error = "stopped"
+        return result
+    # pktmon has no --version and never had one: asking for it fails on every
+    # Windows there is, so this check could only ever refuse. The local path
+    # was fixed long ago; its twin over SSH was not. Ask whether the binary
+    # exists, then whether this session may drive it, and say which failed.
+    rc, _out, _err = ssh.run("where pktmon", timeout=20)
     if rc != 0:
-        result.error = ("pktmon not usable over this SSH session (needs Windows 10 / "
-                        "Server 2019+ and an elevated OpenSSH session)")
+        result.error = ("pktmon is not on that machine (it ships with Windows 10 / "
+                        "Server 2019 and later)")
+        return result
+    rc, _out, _err = ssh.run(
+        "net session >nul 2>&1 && echo ELEVATED || echo NOT-ELEVATED", timeout=20)
+    if rc != 0 or "NOT-ELEVATED" in (_out or ""):
+        result.error = ("pktmon is installed there but this SSH session is not "
+                        "elevated - pktmon needs Administrator")
         return result
     remote_dir = "%TEMP%\\linkfinder"
     etl = remote_dir + "\\lf.etl"
@@ -104,7 +209,11 @@ def probe_windows_over_ssh(ssh: Ssh, result: TargetResult, seconds: int = 65,
     ssh.run("cmd /c pktmon filter remove", timeout=30)
     ssh.run("cmd /c pktmon filter add LinkFinderLLDP -d 0x88CC", timeout=30)
     ssh.run('cmd /c pktmon start --capture --pkt-size 0 --file "%s" -s 64' % etl, timeout=60)
-    time.sleep(seconds)
+    if _cancel.sleep(seconds, cancel):
+        # Stop: the SSH is being closed under us, so just bail - no clean-up
+        # command would get through anyway.
+        result.error = "stopped"
+        return result
     ssh.run("cmd /c pktmon stop", timeout=60)
     ssh.run('cmd /c pktmon etl2pcap "%s" -o "%s"' % (etl, pcapng), timeout=120)
     ssh.run("cmd /c pktmon filter remove", timeout=30)
@@ -117,9 +226,12 @@ def probe_windows_over_ssh(ssh: Ssh, result: TargetResult, seconds: int = 65,
             blob = base64.b64decode("".join(b64.split()))
         except Exception:
             blob = b""
+        # As above: pktmon cannot say which adapter heard the frame, so the
+        # local port stays empty rather than carrying a stand-in.
         for nb in neighbors_from_capture(blob):
-            nb.local_iface = nb.local_iface or "(pktmon: all adapters)"
             nb.source = "pktmon"
+            nb.note = ("pktmon captures all adapters at once; "
+                       "match by switch port description")
             result.add(nb)
             found += 1
     ssh.run('cmd /c del /q "%s" "%s"' % (etl, pcapng), timeout=30)

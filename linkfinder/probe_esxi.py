@@ -135,6 +135,10 @@ def probe_esxi(ssh: Ssh, result: TargetResult, seconds: int = 65,
     result.kind = "esxi"
     started = time.time()
 
+    from . import hardware
+    hardware.attach(result, hardware.read_esxi(
+        lambda cmd: ssh.run(cmd, timeout=30)[1]), say)
+
     _rc, nic_text, _err = ssh.run("esxcli --formatter=keyvalue network nic list", timeout=30)
     nics = parse_esxcli_nics(nic_text)
     up = [n for n, info in nics.items() if info.get("LinkStatus", "").lower() == "up"] or list(nics)

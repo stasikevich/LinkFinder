@@ -6,7 +6,7 @@ record, so comparing two of them needs no database and no agent - just the two
 files.
 
 Matching is the whole problem. Node ids are derived from whatever identity was
-known at the time, so the same switch can be `chassis:00:05:80:...` in one file
+known at the time, so the same switch can be `chassis:aa:bb:cc:...` in one file
 and `ip:198.51.100.1` in another. Devices are therefore matched on the
 identities they carry rather than on their id, and anything that cannot be
 matched is reported as added or removed rather than quietly paired with the
@@ -194,7 +194,6 @@ def compare(before: Dict[str, Any], after: Dict[str, Any]) -> Diff:
         if moved:
             out.changes.append(Change(DEVICE_CHANGED, _label(new_node), fields=moved))
 
-    reverse = {v: k for k, v in pairs.items()}
     old_edges = {_edge_ends(e, {}): e for e in (before.get("edges") or [])}
     new_edges = {_edge_ends(e, pairs): e for e in (after.get("edges") or [])}
 
