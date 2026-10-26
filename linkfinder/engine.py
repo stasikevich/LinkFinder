@@ -356,7 +356,8 @@ def creds_for(opts: Options, target: str) -> Creds:
                  key_file=own.key_file or opts.ssh.key_file,
                  port=own.port or opts.ssh.port,
                  sudo_password=own.sudo_password or own.password
-                 or opts.ssh.sudo_password)
+                 or opts.ssh.sudo_password,
+                 become_password=own.become_password or opts.ssh.become_password)
 
 
 def _login_sequence(opts: Options, first: Creds) -> List[Creds]:

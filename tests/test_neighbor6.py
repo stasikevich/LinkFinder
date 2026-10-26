@@ -355,6 +355,60 @@ check("the card's own plumbing draws nothing",
 check("and invents no device", len(one_card.nodes), 1)
 
 print()
+print("-- a cable may be skipped; a shared segment must still be listened to --")
+from linkfinder.neighbor6 import direct_cable_ports
+
+# A management port hears the whole management LAN. Treating that as
+# "already answered" skipped the capture, and the port ended up with no
+# switch at all on the map.
+check("one peer is a cable, nothing to listen for",
+      direct_cable_ports({"ens1f0": {"peers": [{"mac": "aa:bb:cc:00:00:01"}]}}),
+      ["ens1f0"])
+check("the same peer heard twice is still one cable",
+      direct_cable_ports({"ens1f0": {"peers": [{"mac": "AA:BB:CC:00:00:01"},
+                                               {"mac": "aa:bb:cc:00:00:01"}]}}),
+      ["ens1f0"])
+check("a port hearing a crowd is a switched segment, keep listening",
+      direct_cable_ports({"oam": {"peers": [{"mac": "aa:bb:cc:00:00:01"},
+                                            {"mac": "aa:bb:cc:00:00:02"}]}}),
+      [])
+check("an empty cache decides nothing", direct_cable_ports({}), [])
+
+print()
+print("-- a virtual function is not a second cable --")
+from linkfinder.neighbor6 import fold_vfs
+
+HELD = {"netns_vfs": {"0000:c1:01.0": "ens3f0np0"},
+        "netns": {"4026536055": {
+            "name": "bbu-65445c6fdc-wwgj8",
+            "ifaces": {"ens3f0np0": {"pci": "0000:c1:01.0"},
+                       "eth0": {"pci": ""}}}}}
+RADIO = "2c:a5:39:00:14:3d"
+heard = {"ens3f0np0": {"peers": [{"mac": RADIO}], "evidence": "cache"},
+         "ens3f0np0 in bbu-65445c6fdc-wwgj8": {"peers": [{"mac": RADIO}],
+                                               "evidence": "cache"}}
+folded = fold_vfs(heard, HELD)
+check("the function is gone from the ports", sorted(folded), ["ens3f0np0"])
+check("and the radio is on the cable once",
+      [p["mac"] for p in folded["ens3f0np0"]["peers"]], [RADIO])
+
+# What only the pod could hear is still about that one cable.
+only_inside = {"ens3f0np0 in bbu-65445c6fdc-wwgj8": {
+    "peers": [{"mac": RADIO}], "evidence": "cache"}}
+check("what only the function heard lands on the physical port",
+      [p["mac"] for p in fold_vfs(only_inside, HELD)["ens3f0np0"]["peers"]],
+      [RADIO])
+
+# A whole card moved into a pod is that pod's only view of a real cable.
+moved = {"eth0 in bbu-65445c6fdc-wwgj8": {"peers": [{"mac": RADIO}],
+                                          "evidence": "cache"}}
+check("a port that is not a function of ours keeps its own name",
+      sorted(fold_vfs(moved, HELD)), ["eth0 in bbu-65445c6fdc-wwgj8"])
+check("and folding changes nothing when nothing is virtual",
+      fold_vfs({"eno1": {"peers": [], "evidence": "cache"}}, {}),
+      {"eno1": {"peers": [], "evidence": "cache"}})
+
+print()
 if FAILURES:
     print("%d FAILURES" % len(FAILURES))
     for line in FAILURES:

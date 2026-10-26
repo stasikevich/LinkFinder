@@ -203,7 +203,8 @@ check("the parser has a surface worth checking", len(flags) > 50, True)
 
 SAMPLE = {"--seconds": "30", "--targets-file": "x.txt",
           "--netbox-find": "a-serial", "--from-netbox": "a-tag", "--mode": "ssh", "--user": "u",
-          "--password": "p", "--sudo-password": "p", "--key": "k",
+          "--password": "p", "--sudo-password": "p", "--become-password": "p",
+          "--key": "k",
           "--ssh-port": "22", "--bmc-user": "u", "--bmc-password": "p",
           "--bmc-port": "443", "--iface": "eth0", "--netbox-url": "https://x",
           "--netbox-token": "nbt_a.b", "--setup-tag": "t",

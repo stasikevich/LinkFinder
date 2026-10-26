@@ -328,28 +328,34 @@ def one_port(extra: Dict[str, Any], left: str, right: str) -> str:
 
     Returns the physical port's name when they are one, otherwise "".
     """
-    owner = (extra or {}).get("netns_vfs") or {}
-    spaces = (extra or {}).get("netns") or {}
-    if not owner:
-        return ""
-
-    def behind(port: str) -> str:
-        name, _sep, where = port.partition(IN)
-        if not where:
-            return ""
-        for space in spaces.values():
-            if str(space.get("name") or "") != where:
-                continue
-            return str(((space.get("ifaces") or {}).get(name)
-                        or {}).get("pci") or "")
-        return ""
-
     for inner, outer in ((left, right), (right, left)):
         if IN in outer:
             continue
-        pci = behind(inner)
-        if pci and owner.get(pci) == outer:
+        if outer and behind_port(extra, inner) == outer:
             return outer
+    return ""
+
+
+def behind_port(extra: Dict[str, Any], port: str) -> str:
+    """The physical port a container's virtual function belongs to.
+
+    "" when the port is not in a namespace at all, or is in one but is not a
+    function of a port this host owns - a whole card moved into a pod is
+    that pod's only view of a real cable and must keep its own name.
+
+    The join is by PCI address, which is proof: a pod gives its virtual
+    function the same name as the physical port on purpose.
+    """
+    owner = (extra or {}).get("netns_vfs") or {}
+    spaces = (extra or {}).get("netns") or {}
+    name, _sep, where = port.partition(IN)
+    if not where or not owner:
+        return ""
+    for space in spaces.values():
+        if str(space.get("name") or "") != where:
+            continue
+        pci = str(((space.get("ifaces") or {}).get(name) or {}).get("pci") or "")
+        return owner.get(pci, "") if pci else ""
     return ""
 
 

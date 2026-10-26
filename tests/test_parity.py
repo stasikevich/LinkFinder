@@ -176,7 +176,8 @@ from linkfinder.cli import build_parser                       # noqa: E402
 
 CLI_ONLY = {
     # plumbing: how to reach a device, not a thing a person asks for
-    "--user", "--password", "--sudo-password", "--key", "--ssh-port",
+    "--user", "--password", "--sudo-password", "--become-password",
+    "--key", "--ssh-port",
     "--bmc-user", "--bmc-password", "--bmc-port", "--community",
     "--switch-user", "--switch-password", "--cred", 
     "--workers", "--topology-workers", "--seconds", "--iface", "--mode",

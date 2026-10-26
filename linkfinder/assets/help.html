@@ -1015,6 +1015,7 @@ python tests/test_render.py      # the offline HTML page</code></pre>
 <tr><td><code>-u, --user</code></td><td>USER</td><td>SSH username</td></tr>
 <tr><td><code>-p, --password</code></td><td>PASSWORD</td><td>SSH password (also used for sudo)</td></tr>
 <tr><td><code>--sudo-password</code></td><td>SUDO_PASSWORD</td><td>sudo password if it differs</td></tr>
+<tr><td><code>--become-password</code></td><td>BECOME_PASSWORD</td><td>root password for <code>su -</code>, for a login that may not sudo. Without it such a host can be logged into but never listened on</td></tr>
 <tr><td><code>-i, --key</code></td><td>KEY</td><td>SSH private key file</td></tr>
 <tr><td><code>--ssh-port</code></td><td>SSH_PORT</td><td>SSH port to use when a host does not name its own (default 22). Per-host ports live in the defaults file, so one appliance on 2222 does not move the rest</td></tr>
 <tr><td><code>--bmc-user</code></td><td>BMC_USER</td><td>BMC/Redfish user (defaults to --user)</td></tr>
@@ -1102,7 +1103,7 @@ python tests/test_render.py      # the offline HTML page</code></pre>
 <tr><td><code>--topology-workers</code></td><td>TOPOLOGY_WORKERS</td><td>devices interrogated in parallel per level (default 4)</td></tr>
 </tbody></table>
 <p class="stamp">Built from DOCUMENTATION.md and the program's own options on
-19 Oct 2026. This page carries no address and fetches nothing - it opens from a disk
+26 Oct 2026. This page carries no address and fetches nothing - it opens from a disk
 with the network off.<br>Idea, design and architecture by Stas Mitin.</p>
 </div></main></div>
 <button id="up" type="button">&uarr; Top</button>

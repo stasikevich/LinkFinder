@@ -209,6 +209,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-u", "--user", default="", help="SSH username")
     p.add_argument("-p", "--password", default="", help="SSH password (also used for sudo)")
     p.add_argument("--sudo-password", default="", help="sudo password if it differs")
+    p.add_argument("--become-password", default="",
+                   help="root password for `su -`, for a login that may not "
+                        "sudo. Without it such a host can be logged into but "
+                        "never listened on")
     p.add_argument("-i", "--key", default="", help="SSH private key file")
     p.add_argument("--ssh-port", type=int, default=22,
                    help="SSH port to use when a host does not name its own "
@@ -468,7 +472,8 @@ def options_from_args(args: argparse.Namespace) -> Options:
                 password=pick(args.password, "password", "LINKFINDER_PASSWORD"),
                 key_file=pick(args.key, "key", "LINKFINDER_KEY"),
                 port=args.ssh_port,
-                sudo_password=pick(args.sudo_password, "sudo_password"))
+                sudo_password=pick(args.sudo_password, "sudo_password"),
+                become_password=pick(args.become_password, "become_password"))
     switch_creds = Creds(user=pick(args.switch_user, "switch_user"),
                          password=pick(args.switch_password, "switch_password"))
     extra_creds = []

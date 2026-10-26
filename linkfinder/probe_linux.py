@@ -11,6 +11,7 @@ Copyright (c) 2026 Stas Mitin. SPDX-License-Identifier: MIT
 from __future__ import annotations
 
 import base64
+import re
 import shlex
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -354,15 +355,32 @@ def uncut(value: str):
     return text, False
 
 
+def networkctl_columns(header: str):
+    """Where each column starts, whatever this systemd calls it.
+
+    systemd up to 249 writes "CHASSIS ID", 250 and later write "CHASSIS-ID".
+    Same column, same data - but matching only the old spelling made every
+    modern host look like it had no neighbours at all.
+    """
+    found = []
+    for name in NETWORKCTL_HEADERS:
+        for spelling in (name, name.replace(" ", "-")):
+            at = header.find(spelling)
+            if at >= 0:
+                found.append((at, name))
+                break
+    return sorted(found)
+
+
 def parse_networkctl(text: str) -> List[Neighbor]:
     """Column order differs between systemd versions, so slice by header position."""
     lines = text.splitlines()
     header_at = next((i for i, l in enumerate(lines)
-                      if "CHASSIS ID" in l and "PORT ID" in l), None)
+                      if "CHASSIS" in l and "PORT" in l and "LINK" in l), None)
     if header_at is None:
         return []
     header = lines[header_at]
-    found = sorted((header.index(h), h) for h in NETWORKCTL_HEADERS if h in header)
+    found = networkctl_columns(header)
     spans = []
     for pos, (start, name) in enumerate(found):
         end = found[pos + 1][0] if pos + 1 < len(found) else None
@@ -398,6 +416,44 @@ def parse_networkctl(text: str) -> List[Neighbor]:
                        "longer than shown; read it from the switch to be sure")
         if nb.switch or nb.chassis_id:
             out.append(nb)
+    return out
+
+
+def _first_line(text: str) -> str:
+    """The one line worth repeating out of a refusal.
+
+    sudo quotes the whole capture script back at you; that is noise around
+    the one fact that matters - this account may not become root.
+    """
+    for line in (text or "").splitlines():
+        if line.strip():
+            said = re.sub(r"execute '.*", "execute that command", line.strip())
+            return said[:160]
+    return ""
+
+
+def networkd_managed(text: str) -> set:
+    """Which links systemd-networkd actually watches.
+
+    networkd stores LLDP only for links it manages. On a host where one
+    port is in netplan and the rest are not, a neighbour on that one port
+    says nothing about the others - they are not quiet, they are unwatched.
+    """
+    lines = text.splitlines()
+    header_at = next((i for i, l in enumerate(lines)
+                      if "LINK" in l and "SETUP" in l), None)
+    if header_at is None:
+        return set()
+    header = lines[header_at]
+    link_at, setup_at = header.index("LINK"), header.index("SETUP")
+    out = set()
+    for line in lines[header_at + 1:]:
+        if not line.strip():
+            break
+        name = line[link_at:].split()[0] if len(line) > link_at else ""
+        setup = line[setup_at:].strip().split()[0] if len(line) > setup_at else ""
+        if name and setup in ("configured", "configuring", "pending"):
+            out.add(name)
     return out
 
 
@@ -655,7 +711,7 @@ def _probe_neighbor6(ssh, result: TargetResult, ifaces, chosen, say) -> None:
         say("  neighbour probe skipped: %s" % exc)
         return
     if found:
-        result.extra.setdefault("neigh6", {}).update(found)
+        remember_peers(result, found)
 
 
 def _probe_namespaces(ssh, result: TargetResult, say,
@@ -800,6 +856,45 @@ def _our_other_half(result: TargetResult, port: str, mac: str) -> bool:
     return False
 
 
+def remember_peers(result: TargetResult, found: Dict[str, Any]) -> None:
+    """Add what a port heard without discarding what it heard before.
+
+    update() replaced a port's whole record, so a later and thinner read -
+    one answer to a single solicitation - wiped the kernel cache's fuller
+    list, and with it the device the cache had already named. Both are
+    views of the same cable seconds apart, so they are added together.
+    """
+    cache = result.extra.setdefault("neigh6", {})
+    for port, record in (found or {}).items():
+        seat = cache.setdefault(port, {"peers": [],
+                                       "evidence": record.get("evidence", "")})
+        peers = seat.setdefault("peers", [])
+        have = {(p.get("mac") or "").lower() for p in peers}
+        for peer in record.get("peers") or []:
+            mac = (peer.get("mac") or "").lower()
+            if mac and mac not in have:
+                peers.append(peer)
+                have.add(mac)
+
+
+def _drop_our_own_halves(result: TargetResult) -> None:
+    """Our own virtual function is not a device on our own cable.
+
+    A port that has functions in a pod hears them answer, and counted as
+    neighbours they turn a cable with one radio on it into a "shared
+    segment" - so the radio never reaches the map. Run last, because only
+    then is every function of this machine known.
+    """
+    cache = result.extra.get("neigh6") or {}
+    for port in list(cache):
+        kept = [p for p in (cache[port].get("peers") or [])
+                if not _our_other_half(result, port, p.get("mac", ""))]
+        if kept:
+            cache[port]["peers"] = kept
+        else:
+            del cache[port]
+
+
 def _rows_for_namespaces(result: TargetResult, target_ip: str,
                          found: Dict[str, Any]) -> None:
     """Give every hidden port a row of its own, named so it cannot be confused.
@@ -814,6 +909,7 @@ def _rows_for_namespaces(result: TargetResult, target_ip: str,
     it was free, where the root namespace could only have got it by asking.
     """
     from .neighbor6 import EVIDENCE_LIVE
+    from .netns import behind_port
 
     spaces = (found or {}).get("spaces") or {}
     if not spaces:
@@ -824,12 +920,27 @@ def _rows_for_namespaces(result: TargetResult, target_ip: str,
         for itf in space.hardware():
             where = "%s in %s" % (itf.name, space.label)
             if itf.mac:
+                # Kept even for a virtual function: this is how the card
+                # recognises its own other half instead of reporting a cable.
                 macs[where] = itf.mac
             peers = [{"mac": n["mac"], "ip": n["ip"]}
                      for n in space.neighbours if n["iface"] == itf.name
                      and not _our_other_half(result, where, n["mac"])]
+            # A virtual function is not a port of this machine and not a
+            # cable of its own - it is the physical port under it, which has
+            # the only cable there is. What it heard belongs to that port.
+            pf = behind_port(result.extra, where)
             if peers:
-                cache[where] = {"peers": peers, "evidence": EVIDENCE_LIVE}
+                seat = cache.setdefault(pf or where,
+                                        {"peers": [], "evidence": EVIDENCE_LIVE})
+                have = {(p.get("mac") or "").lower() for p in seat["peers"]}
+                for peer in peers:
+                    mac = (peer.get("mac") or "").lower()
+                    if mac not in have:
+                        seat["peers"].append(peer)
+                        have.add(mac)
+            if pf:
+                continue
             note = ("this port is not in the host's own network - it is held "
                     "by %s" % space.label)
             if not peers:
@@ -1017,12 +1128,25 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
     # genuinely quiet - we trust that and give the quiet ports only a short
     # top-up capture, no full window and no raw-socket fallback.
     agent_heard = False
+    # ...and which ports that agent is actually listening on. A daemon
+    # listens on every port; networkd only on the ones it manages.
+    agent_covers = set()
     if ssh.have("lldpctl"):
-        agent_heard = step("lldpctl", lambda: parse_lldpctl(ssh.run("lldpctl -f keyvalue", timeout=25)[1])) or agent_heard
+        if step("lldpctl", lambda: parse_lldpctl(ssh.run("lldpctl -f keyvalue", timeout=25)[1])):
+            agent_heard = True
+            agent_covers.update(chosen)
     elif ssh.have("lldpcli"):
-        agent_heard = step("lldpcli", lambda: parse_lldpctl(ssh.run("lldpcli -f keyvalue show neighbors", timeout=25)[1])) or agent_heard
+        if step("lldpcli", lambda: parse_lldpctl(ssh.run("lldpcli -f keyvalue show neighbors", timeout=25)[1])):
+            agent_heard = True
+            agent_covers.update(chosen)
     if missing() and ssh.have("networkctl"):
-        agent_heard = step("networkctl-lldp", lambda: parse_networkctl(ssh.run("networkctl lldp --no-pager", timeout=20)[1])) or agent_heard
+        if step("networkctl-lldp", lambda: parse_networkctl(ssh.run("networkctl lldp --no-pager", timeout=20)[1])):
+            agent_heard = True
+            try:
+                agent_covers.update(networkd_managed(
+                    ssh.run("networkctl list --no-pager", timeout=20)[1]))
+            except Exception as exc:
+                say("  could not read which links networkd manages: %s" % exc)
     if missing() and ssh.have("lldptool"):
         pending = missing()
 
@@ -1034,7 +1158,9 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
                 if nb:
                     found.append(nb)
             return found
-        agent_heard = step("lldptool", lldptool_all, only_for=pending) or agent_heard
+        if step("lldptool", lldptool_all, only_for=pending):
+            agent_heard = True
+            agent_covers.update(pending)
 
     pending = missing()
     # The neighbour cache, before the capture. A pending port that already
@@ -1055,11 +1181,22 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
             say("  neighbour-cache read skipped: %s" % exc)
         cached = {k: v for k, v in (cached or {}).items() if (v or {}).get("peers")}
         if cached:
-            result.extra.setdefault("neigh6", {}).update(cached)
-            pending = [p for p in pending if p not in cached]
-            say("  %d port(s) already have a neighbour in the host's cache - "
-                "not listening on them: %s"
-                % (len(cached), ", ".join(sorted(cached))))
+            remember_peers(result, cached)
+            # Only ONE peer in the cache means a cable, and a capture there
+            # would sit silent. Several peers mean a shared segment - a switch
+            # is in the middle, and that is exactly where LLDP can be heard.
+            # Skipping those left a management port with no answer at all.
+            from .neighbor6 import direct_cable_ports
+            direct = direct_cable_ports(cached)
+            pending = [p for p in pending if p not in direct]
+            if direct:
+                say("  %d port(s) already have a neighbour in the host's cache - "
+                    "not listening on them: %s"
+                    % (len(direct), ", ".join(sorted(direct))))
+            shared = sorted(set(cached) - set(direct))
+            if shared:
+                say("  %d port(s) hear several peers - a switch in the middle, "
+                    "still listening on them: %s" % (len(shared), ", ".join(shared)))
 
     captured = {"ran": False}
     if pending:
@@ -1073,7 +1210,12 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
             # waited for now; the rest are still listened to.
             from . import quiet
             listen_for, expect, full = quiet.window(target_ip, pending, seconds)
-            if agent_heard:
+            unwatched = [p for p in pending if p not in agent_covers]
+            if agent_heard and unwatched:
+                say("  the host's LLDP agent does not watch %s - listening the "
+                    "full window there, its silence proves nothing"
+                    % ", ".join(unwatched))
+            if agent_heard and not unwatched:
                 # The host's LLDP agent is up and heard neighbours elsewhere, so
                 # these ports are quiet for real - a short top-up, not the window.
                 listen_for = min(listen_for, AGENT_TOPUP)
@@ -1100,6 +1242,14 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
                 captured["ran"] = rc == 0 and capture_landed(out)
                 if rc == 0 and not captured["ran"]:
                     say("    %s wrote no capture file at all" % tool)
+                elif rc != 0:
+                    # Saying "nothing heard" when nothing was ever listened to
+                    # is the worst answer the tool can give: the port looks
+                    # proven quiet when it was never opened.
+                    say("    could not become root to listen - this account "
+                        "cannot sudo here (%s); give it the root password with "
+                        "--become-password and it will use `su -`"
+                        % (_first_line(_err) or _first_line(out) or "rc=%d" % rc))
                 heard = _parse_capture_output(out, name_map, tool, say)
                 # Only a full-length listen proves a port is silent; a
                 # shortened one proves nothing about what it did not hear,
@@ -1127,7 +1277,7 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
             step("toolbox-tcpdump", run_toolbox, only_for=pending)
 
     pending = missing()
-    if pending and agent_heard:
+    if pending and agent_heard and all(p in agent_covers for p in pending):
         say("  trusting the host's own LLDP agent for the quiet port(s): %s"
             % ", ".join(pending))
     elif pending and captured["ran"]:
@@ -1349,6 +1499,7 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
     _rows_for_namespaces(result, target_ip, hidden)
     if neighbours:
         _probe_neighbor6(ssh, result, ifaces, chosen, say)
+    _drop_our_own_halves(result)
     attach_neighbor6(result)
     attach_ptp(result)
     _explain_dark_ports(result, hidden)

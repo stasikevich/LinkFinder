@@ -102,6 +102,40 @@ check("networkctl chassis", rows["oam"].chassis_id, "00:0b:86:aa:bb:cc")
 check("networkctl desc w/ spaces", rows["eno2"].port_desc, "uplink to core")
 check("networkctl no header", parse_networkctl("nothing here"), [])
 
+# The shape a live Ubuntu host (systemd 255) really prints - names changed:
+# every column is hyphenated there, and the old header match found nothing,
+# so a port with a perfectly good neighbour came back empty.
+NETWORKCTL_255 = """LINK CHASSIS-ID        SYSTEM-NAME CAPS        PORT-ID PORT-DESCRIPTION
+oam  aa:bb:cc:00:00:07 sw-access-9 ..b.r...... 1/1/40  1/1/40
+
+Capability Flags:
+b - Bridge; r - Router
+
+1 neighbors listed.
+"""
+new = parse_networkctl(NETWORKCTL_255)
+check("systemd 255 hyphenates every header", len(new), 1)
+check("systemd 255 link", new[0].local_iface, "oam")
+check("systemd 255 switch", new[0].switch, "sw-access-9")
+check("systemd 255 port", new[0].port, "1/1/40")
+check("systemd 255 chassis", new[0].chassis_id, "aa:bb:cc:00:00:07")
+check("systemd 255 caps", new[0].capabilities, "Bridge,Router")
+
+# The same host manages ONE of its eleven ports with networkd. A neighbour
+# heard there must not be read as "the other ports are quiet".
+from linkfinder.probe_linux import networkd_managed
+NETWORKCTL_LIST = """IDX LINK            TYPE     OPERATIONAL SETUP
+  1 lo              loopback carrier    unmanaged
+  4 oam             ether    routable    configured
+  6 ens2f1np1       ether    degraded    unmanaged
+  8 ens2f3np3       ether    degraded    unmanaged
+
+4 links listed.
+"""
+check("only the managed link is watched",
+      networkd_managed(NETWORKCTL_LIST), {"oam"})
+check("no list, no claim", networkd_managed(""), set())
+
 SYSFS = """IF|eno1|aa:bb:cc:dd:ee:01|up|10000|1||1|
 IF|eno2|aa:bb:cc:dd:ee:02|up|10000|1|bond0|1|
 IF|eno3|aa:bb:cc:dd:ee:03|up|10000|1|bond0|1|

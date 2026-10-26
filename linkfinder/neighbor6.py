@@ -47,6 +47,54 @@ def _some_of(names):
                                len(names) - MAX_NAMED)
 
 
+def direct_cable_ports(cached: Dict[str, Any]) -> List[str]:
+    """Which cached ports are a cable, and which are a shared segment.
+
+    One peer MAC on a port is a cable: nothing else is attached, so a
+    capture there would only sit silent and can be skipped. Several peers
+    mean a switch or a hub in the middle - and that is precisely where
+    LLDP is heard, so those ports must still be listened to.
+    """
+    out = []
+    for port, found in (cached or {}).items():
+        macs = {(p.get("mac") or "").lower()
+                for p in ((found or {}).get("peers") or [])}
+        if len(macs) == 1:
+            out.append(port)
+    return sorted(out)
+
+
+def fold_vfs(found: Dict[str, Any], extra: Dict[str, Any]) -> Dict[str, Any]:
+    """A virtual function is not a port of its own, and not a second cable.
+
+    A pod's VF and the physical port it sits on are one piece of hardware
+    with one cable in it. Drawn as two, the same radio appeared on the map
+    twice - once from `ens2f1np1` and once from `ens2f1np1 in <pod>`. What
+    the VF heard is kept, because it is evidence about that one cable, but
+    it is folded onto the physical port and the VF is never drawn.
+    """
+    from .netns import behind_port
+
+    out: Dict[str, Any] = {}
+    for port, record in (found or {}).items():
+        if behind_port(extra, port):
+            continue
+        out[port] = dict(record, peers=list(record.get("peers") or []))
+    for port, record in (found or {}).items():
+        pf = behind_port(extra, port)
+        if not pf:
+            continue
+        seat = out.setdefault(pf, {"peers": [],
+                                   "evidence": record.get("evidence", "")})
+        have = {(p.get("mac") or "").lower() for p in seat["peers"]}
+        for peer in record.get("peers") or []:
+            mac = (peer.get("mac") or "").lower()
+            if mac and mac not in have:
+                seat["peers"].append(peer)
+                have.add(mac)
+    return out
+
+
 def is_dark(iface: Dict[str, Any]) -> bool:
     """A port with a cable in it and nothing to show for it.
 
@@ -329,6 +377,7 @@ def connect(topology, views, log=None) -> int:
     """
     say = log or (lambda _m: None)
     from .ptp import normalise_mac
+    from .netns import behind_port
     from .oui import kind_from_maker, vendor as oui_vendor
 
     owners: Dict[str, str] = {}
@@ -356,11 +405,14 @@ def connect(topology, views, log=None) -> int:
         for where in ("macs", "perm_macs"):
             for name, mac in ((getattr(view, "extra", {}) or {}).get(where)
                               or {}).items():
-                owners.setdefault(normalise_mac(mac), "%s|%s" % (node_id, name))
+                # A MAC that belongs to a virtual function belongs, as far as
+                # any cable is concerned, to the physical port under it.
+                seat = behind_port(getattr(view, "extra", {}) or {}, name) or name
+                owners.setdefault(normalise_mac(mac), "%s|%s" % (node_id, seat))
         cards[node_id] = getattr(view, "extra", {}) or {}
         found = (getattr(view, "extra", {}) or {}).get("neigh6") or {}
         if found:
-            ports[node_id] = found
+            ports[node_id] = fold_vfs(found, getattr(view, "extra", {}) or {})
 
     for node in topology.nodes.values():
         chassis = normalise_mac(getattr(node, "chassis_id", "") or "")

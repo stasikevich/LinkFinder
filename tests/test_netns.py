@@ -290,6 +290,22 @@ check("and an empty record is harmless",
       one_port({}, "ens3f0np0", "ens3f0np0 in bbu-65445c6fdc-wwgj8"), "")
 
 print()
+print("-- and the physical port under a function can be named on its own --")
+from linkfinder.netns import behind_port
+
+check("a function names the port it lives on",
+      behind_port(HELD, "ens3f0np0 in bbu-65445c6fdc-wwgj8"), "ens3f0np0")
+check("a root port is not behind anything",
+      behind_port(HELD, "ens3f0np0"), "")
+check("a veth in a pod owns no hardware, so no port either",
+      behind_port(HELD, "eth0 in bbu-65445c6fdc-wwgj8"), "")
+check("a pod we do not hold is not consulted",
+      behind_port(HELD, "ens3f0np0 in some-other-pod"), "")
+check("with no function map nothing is claimed",
+      behind_port({"netns": HELD["netns"]},
+                  "ens3f0np0 in bbu-65445c6fdc-wwgj8"), "")
+
+print()
 if FAILURES:
     print("FAILURES:")
     for line in FAILURES:
