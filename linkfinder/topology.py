@@ -476,6 +476,46 @@ class Topology:
         edge.last_seen = _latest(edge.last_seen, stamp)
         return edge
 
+    def collapse_half_specified_edges(self) -> int:
+        """Drop an edge that only half-names a cable another already spells out.
+
+        A port learned from the IPv6 neighbour cache knows the far end's
+        identity but not its interface, so it draws device<->port with "?" on
+        the far side. If a real protocol (LLDP) already drew the same
+        device<->port with that interface named, the "?" edge is the same
+        cable, less said, and must not show as a second parallel link - its
+        evidence folds into the named one.
+        """
+        removed = 0
+        for weak in list(self.edges.values()):
+            if weak.id not in self.edges:
+                continue
+            ends = [(weak.a, weak.a_iface), (weak.b, weak.b_iface)]
+            vague = [e for e in ends if (e[1] or "?") == "?"]
+            if len(vague) != 1:
+                continue
+            u_node = vague[0][0]
+            a_node, a_iface = [e for e in ends if (e[1] or "?") != "?"][0]
+            for other in list(self.edges.values()):
+                if other is weak or other.id not in self.edges:
+                    continue
+                if {other.a, other.b} != {weak.a, weak.b}:
+                    continue
+                by_node = {other.a: other.a_iface, other.b: other.b_iface}
+                if by_node.get(a_node, "?") != a_iface:
+                    continue
+                if (by_node.get(u_node, "?") or "?") == "?":
+                    continue
+                other.protos = _union(other.protos, weak.protos)
+                other.sources = _union(other.sources, weak.sources)
+                other.reported_by = _union(other.reported_by, weak.reported_by)
+                for layer, data in (weak.attrs or {}).items():
+                    other.note(layer, **data)
+                self.edges.pop(weak.id, None)
+                removed += 1
+                break
+        return removed
+
     def fold_known_macs(self) -> int:
         """A neighbour MAC that a scanned device already owns is that device.
 

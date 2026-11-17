@@ -75,3 +75,10 @@ def walk(topology, views: List[Tuple[str, Any]],
                 step(topology, log=say)
         except Exception as problem:      # never lose a finished map over one
             say("  %s skipped: %s" % (label, problem))
+    try:
+        gone = topology.collapse_half_specified_edges()
+        if gone:
+            say("  folded %d half-named link(s) into the ones that name the port"
+                % gone)
+    except Exception as problem:
+        say("  edge collapse skipped: %s" % problem)

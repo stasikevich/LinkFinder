@@ -581,7 +581,12 @@ def draw(topology, ports, owners, cards, leased, told, proto, source, label,
                 if not seat:
                     continue
                 far, _sep, far_iface = seat.partition("|")
-                if far == node_id and far_iface in ("", iface):
+                # A pod/VF port ("ens1f1 in bbu-...") is the physical port seen
+                # from inside a container; the cable is to the physical port, so
+                # the edge carries that name and merges with what LLDP drew there
+                # instead of showing a second, virtual port.
+                wire_iface = str(iface).split(" in ", 1)[0]
+                if far == node_id and far_iface in ("", wire_iface, iface):
                     continue
                 # One port that a container also holds is not two ports with
                 # a cable between them, and drawing it as a loop sends an
@@ -590,7 +595,7 @@ def draw(topology, ports, owners, cards, leased, told, proto, source, label,
                                                iface, far_iface):
                     continue
                 before = len(topology.edges)
-                edge = topology.add_edge(a=node_id, a_iface=iface, b=far,
+                edge = topology.add_edge(a=node_id, a_iface=wire_iface, b=far,
                                          b_iface=far_iface, proto=proto,
                                          source=source, reported_by=node_id)
                 if far == node_id:
