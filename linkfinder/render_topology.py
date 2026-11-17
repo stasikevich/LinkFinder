@@ -32,6 +32,7 @@ KIND_STYLE = {
     "serial": ["#8c8c8c", "round-tag"],
     "peripheral": ["#a0a0a0", "round-rectangle"],
     "pdu": ["#d62728", "round-rectangle"],
+    "vm": ["#2a9d8f", "barrel"],
     "unknown": ["#7f7f7f", "ellipse"],
 }
 
@@ -47,6 +48,7 @@ KIND_SIZE = {
     "serial": [40, 26],
     "peripheral": [40, 30],
     "pdu": [34, 48],
+    "vm": [46, 42],
     "unknown": [44, 40],
 }
 
@@ -54,7 +56,7 @@ KIND_SIZE = {
 KIND_WORD = {"timing": "timing source", "bmc": "management controller",
              "ap": "wireless access point", "host": "server",
              "serial": "console cable", "peripheral": "usb device",
-             "pdu": "power / UPS"}
+             "pdu": "power / UPS", "vm": "virtual machine"}
 
 # The map marks a device by what it IS - a server, a switch, a phone, a UPS -
 # with a clear original glyph, and names the maker in plain text on the panel.

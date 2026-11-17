@@ -476,6 +476,32 @@ class Topology:
         edge.last_seen = _latest(edge.last_seen, stamp)
         return edge
 
+    def fill_neighbour_ips(self) -> int:
+        """Give an invented neighbour its routable address, not just its fe80.
+
+        A neighbour first learnt over IPv6 keeps only its link-local address;
+        a scanned host's ARP table names the same MAC at a real IPv4. Prefer
+        that for the node's label.
+        """
+        by_mac: Dict[str, str] = {}
+        for node in self.nodes.values():
+            for ip, info in ((node.extra or {}).get("neighbours") or {}).items():
+                mac = normalise_chassis_id(
+                    (info or {}).get("mac", "") if isinstance(info, dict) else "")
+                if mac and ip and not str(ip).lower().startswith("fe80"):
+                    by_mac.setdefault(mac, str(ip))
+        filled = 0
+        for node in self.nodes.values():
+            if node.state != "unscanned":
+                continue
+            routable = by_mac.get(node.chassis_id or "")
+            if routable and routable not in node.mgmt_ips:
+                node.mgmt_ips = [a for a in node.mgmt_ips
+                                 if not str(a).lower().startswith("fe80")]
+                node.mgmt_ips.insert(0, routable)
+                filled += 1
+        return filled
+
     def collapse_half_specified_edges(self) -> int:
         """Drop an edge that only half-names a cable another already spells out.
 

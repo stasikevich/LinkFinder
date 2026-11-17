@@ -80,10 +80,35 @@ def made_up(mac: str) -> bool:
         return False
 
 
+# A hypervisor stamps a known prefix on its guest's MAC even though the bit says
+# "locally administered, no maker". On a fronthaul port a guest is a real peer -
+# a vRU, a core VM - not container plumbing, so these are named rather than
+# dropped. (A guest on a virtual-only interface is still filtered elsewhere.)
+VM_MAKERS = {
+    "525400": "QEMU/KVM virtual machine",
+    "000c29": "VMware virtual machine", "005056": "VMware virtual machine",
+    "000569": "VMware virtual machine", "001c14": "VMware virtual machine",
+    "00155d": "Hyper-V virtual machine",
+    "080027": "VirtualBox virtual machine", "0a0027": "VirtualBox virtual machine",
+    "00163e": "Xen virtual machine",
+}
+
+
+def vm_maker(mac: str) -> str:
+    """The hypervisor behind a guest MAC, or "" - by its well-known OUI prefix."""
+    digits = HEX.sub("", str(mac or "")).lower()
+    return VM_MAKERS.get(digits[:6], "")
+
+
 def vendor(mac: str) -> str:
     """The maker's name, or "" when there is none to be had."""
     digits = HEX.sub("", str(mac or "")).upper()
-    if len(digits) < 6 or made_up(digits):
+    if len(digits) < 6:
+        return ""
+    vm = vm_maker(digits)
+    if vm:
+        return vm
+    if made_up(digits):
         return ""
     known = table()
     for size in LENGTHS:
@@ -108,6 +133,7 @@ MAKER_KIND = [
                 "brocade", "allied telesis", "edge-core", "accton", "ubiquiti")),
     ("host", ("super micro", "supermicro", "dell inc", "lenovo", "asustek",
               "gigabyte", "quanta computer", "inspur", "intel corporate")),
+    ("vm", ("virtual machine",)),
     ("phone", ("polycom", "yealink", "grandstream", "snom")),
     ("bmc", ("american megatrends", "aspeed")),
 ]

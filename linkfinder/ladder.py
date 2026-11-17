@@ -82,3 +82,7 @@ def walk(topology, views: List[Tuple[str, Any]],
                 % gone)
     except Exception as problem:
         say("  edge collapse skipped: %s" % problem)
+    try:
+        topology.fill_neighbour_ips()
+    except Exception as problem:
+        say("  neighbour-ip fill skipped: %s" % problem)

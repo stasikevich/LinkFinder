@@ -539,7 +539,7 @@ def draw(topology, ports, owners, cards, leased, told, proto, source, label,
                 seat = owners.get(mac)
                 if not seat and internal:
                     continue
-                if not seat and alone and mac:
+                if not seat and mac:
                     # The far end answered but is nothing we scanned - a radio
                     # unit, an appliance, somebody else's box. Dropping it was
                     # why a fronthaul cable could be found and still be absent
@@ -562,8 +562,26 @@ def draw(topology, ports, owners, cards, leased, told, proto, source, label,
                     # MAC from an ARP/ND cache - a container's veth or bridge, or
                     # a box guessed only to be some vendor's server - is a
                     # floating guess the map does not want, so it is dropped.
-                    if not spoke and not record and guess != "radio":
+                    # Draw a far end only when something places it: it
+                    # answered a probe (spoke), a scanned host leased it an
+                    # address, or its MAC names a real class of box. A radio or
+                    # a VM is kept even on a shared segment - on a fronthaul
+                    # that is exactly the peer worth seeing - while a plainer
+                    # guess (a switch, a host) must still be the sole answer so
+                    # a busy management segment does not explode into thirty
+                    # boxes. A MAC that names nothing is dropped.
+                    interesting = bool(spoke or record) or guess in ("radio", "vm")
+                    if not interesting and not (alone and guess):
                         continue
+                    # One MAC answers on several addresses (its IPv4 and its
+                    # link-local); the node is made once, so pick the routable
+                    # one over fe80 rather than whichever peer came first.
+                    same = [str(p.get("address") or "") for p in peers
+                            if normalise_mac(p.get("mac", "")) == mac
+                            and p.get("address")]
+                    best_ip = next((a for a in same
+                                    if not a.lower().startswith("fe80")),
+                                   same[0] if same else "")
                     born = topology.add_node(
                         chassis_id=mac, kind=guess or "unknown",
                         state="unscanned", source=source,
@@ -574,13 +592,26 @@ def draw(topology, ports, owners, cards, leased, told, proto, source, label,
                         serial=str(spoke.get("serial") or ""),
                         vendor=str(spoke.get("model") or ""),
                         mgmt_ip=str(record.get("address")
-                                    or spoke.get("address") or ""))
+                                    or spoke.get("address")
+                                    or best_ip or ""))
                     if spoke.get("facts"):
                         born.extra["identified"] = spoke
                     owners[mac] = seat = "%s|" % born.id
                 if not seat:
                     continue
                 far, _sep, far_iface = seat.partition("|")
+                # The IPv4 (ARP) pass runs after the IPv6 (ND) one, so an
+                # invented neighbour first keeps only its fe80 address; when the
+                # routable one arrives later, fold it in and drop the lone fe80.
+                if _sep and str(peer.get("address") or ""):
+                    fn = topology.get(far)
+                    addr = str(peer.get("address"))
+                    if (fn is not None and fn.state == "unscanned"
+                            and not addr.lower().startswith("fe80")
+                            and addr not in fn.mgmt_ips):
+                        kept = [a for a in fn.mgmt_ips
+                                if not str(a).lower().startswith("fe80")]
+                        fn.mgmt_ips = kept + [addr]
                 # A pod/VF port ("ens1f1 in bbu-...") is the physical port seen
                 # from inside a container; the cable is to the physical port, so
                 # the edge carries that name and merges with what LLDP drew there
