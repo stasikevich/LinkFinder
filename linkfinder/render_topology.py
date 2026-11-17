@@ -1380,8 +1380,10 @@ def _bmc_lines(found: Dict[str, Any], inventory: Any) -> List[str]:
     out = []
     address = str(found.get("address") or "")
     if not address:
-        out.append("%-14s %s" % ("", "a controller is present and no address "
-                                     "is configured on it"))
+        msg = ("a controller is present but its address could not be read "
+               "(needs root on the host)" if found.get("tool") == "unread"
+               else "a controller is present and no address is configured on it")
+        out.append("%-14s %s" % ("", msg))
         if recorded:
             out.append("%-14s %s" % (recorded, "NetBox records this address "
                                                "for it"))

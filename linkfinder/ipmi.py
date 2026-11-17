@@ -198,6 +198,10 @@ def collect(run: Callable[[str], str],
         kernel = _read_over_device(ssh, tell)
         if kernel.get("address"):
             return kernel
+        if kernel.get("tool") == "unread":
+            tell("  ipmi: a BMC is here but its address could not be read "
+                 "(%s)" % kernel.get("reason", "needs root"))
+            return kernel
     if absent:
         return {"tool": "absent"}
     if not found.get("address"):
@@ -235,7 +239,8 @@ def _read_over_device(ssh: Any, tell: Callable[[str], None]) -> Dict[str, Any]:
         if "yes" not in out:
             return {}
         if not ssh.have("python3"):
-            return {}
+            return {"tool": "unread",
+                    "reason": "no python3 on the host to read /dev/ipmi0"}
         # A BMC with a LAN config answers each channel read in milliseconds;
         # when the SEND blocks (no config, or a wedged BMC) the whole script is
         # capped here rather than sitting for the better part of a minute.
@@ -247,13 +252,19 @@ def _read_over_device(ssh: Any, tell: Callable[[str], None]) -> Dict[str, Any]:
     if found.get("address"):
         tell("  ipmi: BMC on %s (%s), read from the kernel - no ipmitool here"
              % (found["address"], found.get("source", "source not reported")))
-    return found
+        return found
+    # The device is here but gave up no address: that is "could not read it"
+    # (no root, a wedged BMC), NOT "there is no address" - do not claim the
+    # latter, which reads as a real misconfiguration.
+    return {"tool": "unread", "reason": "could not read /dev/ipmi0 - needs root"}
 
 
 def describe(found: Dict[str, Any]) -> str:
     """One line a person can read, or nothing worth printing."""
     if not found or found.get("tool") == "absent":
         return ""
+    if found.get("tool") == "unread":
+        return "a BMC is present but its address could not be read (needs root)"
     address = found.get("address")
     if not address:
         return "a BMC is present but no address is configured on it"

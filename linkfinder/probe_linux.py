@@ -1437,7 +1437,10 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
     # inside it. Also the one NetBox most often holds wrongly, because
     # nobody can see it from outside to check.
     from .ipmi import collect as collect_bmc
-    bmc = collect_bmc(lambda cmd: ssh.run(cmd, timeout=40)[1], say, ssh=ssh)
+    # Reading the BMC (ipmitool or /dev/ipmi0) needs root, so the read is
+    # elevated; a login that cannot sudo still gets "could not read", not a
+    # false "no address configured".
+    bmc = collect_bmc(lambda cmd: ssh.sudo(cmd, timeout=40)[1], say, ssh=ssh)
     if bmc:
         result.extra["ipmi"] = bmc
 
