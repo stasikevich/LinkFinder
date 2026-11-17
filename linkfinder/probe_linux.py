@@ -1465,6 +1465,11 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
     if _storage.get("disks") or _storage.get("raid"):
         result.extra["storage"] = _storage
 
+    from .porthealth import collect as collect_porthealth
+    _ph = collect_porthealth(lambda cmd: ssh.run(cmd, timeout=30)[1], say)
+    if _ph:
+        result.extra["port_health"] = _ph
+
     def _hw_run(cmd: str) -> str:
         # The DMI serials (product/chassis/board) are root-only (-r--------) on
         # many boards, and with no serial NetBox has nothing to match the box
