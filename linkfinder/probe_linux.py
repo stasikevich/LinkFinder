@@ -542,7 +542,12 @@ def _probe_ptp(ssh: Ssh, result: TargetResult, ifaces: Dict[str, Iface],
 
     def run(command: str) -> str:
         # pmc answers in under a second when the PTP daemon is up; when a pod's
-        # socket is wedged the read must not sit for half a minute.
+        # socket is wedged the read must not sit for half a minute. Entering a
+        # pod's namespaces (nsenter) needs root, so only that path pays for
+        # sudo; the plain reads (ps, phc, host pmc) stay unprivileged so a host
+        # whose login cannot sudo still gets the port state.
+        if "nsenter" in command:
+            return ssh.sudo(command, timeout=12)[1]
         return ssh.run(command, timeout=12)[1]
 
     try:
