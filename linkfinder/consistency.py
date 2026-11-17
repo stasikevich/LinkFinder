@@ -16,6 +16,8 @@ Copyright (c) 2026 Stas Mitin. SPDX-License-Identifier: MIT
 """
 from __future__ import annotations
 
+import re
+
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
@@ -28,6 +30,20 @@ def _side(edge, node_id: str) -> Tuple[str, str]:
     if edge.a == node_id:
         return edge.a_iface, edge.b_iface
     return edge.b_iface, edge.a_iface
+
+
+# A host-side virtual port - a VM's tap (vnet), a bridge, a container veth - is
+# not the physical end of a cable, so a real port appearing to "face" one of
+# these as well as its true peer is not a contradiction. Counting them is what
+# lit a working fronthaul link red: enp9s0 faced iperf2 AND vnet1, and vnet1 is
+# a VM tap on the same host, not a second cable.
+_VIRTUAL_IFACE = re.compile(
+    r"^(vnet|veth|tap\d|tun\d|virbr|docker|br-|cni|flannel|cali|cilium|lxc|"
+    r"macvtap|vif|fwbr|fwln|fwpr|ovs-|qbr|qvo|qvb|vhost|vmnet)", re.I)
+
+
+def _virtual_iface(name: str) -> bool:
+    return bool(_VIRTUAL_IFACE.match(str(name or "").strip().lower()))
 
 
 def find(topology, log: Optional[Callable[[str], None]] = None) -> List[Dict[str, Any]]:
@@ -53,8 +69,11 @@ def find(topology, log: Optional[Callable[[str], None]] = None) -> List[Dict[str
                 if local and local != "?":
                     seen.setdefault(local, []).append(edge)
             for local, claims in seen.items():
+                if _virtual_iface(local):
+                    continue
                 remotes = sorted({_side(e, node_id)[1] for e in claims})
-                remotes = [r for r in remotes if r and r != "?"]
+                remotes = [r for r in remotes
+                           if r and r != "?" and not _virtual_iface(r)]
                 if len(remotes) < 2:
                     continue
                 other = pair[0] if pair[1] == node_id else pair[1]
