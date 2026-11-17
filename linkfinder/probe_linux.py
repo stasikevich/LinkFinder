@@ -37,7 +37,7 @@ every time. The length/protocol tests exclude BPDUs and the other Cisco SNAP
 protocols (VTP, DTP, PAgP) that share the CDP group address."""
 
 SNIFFER_SRC = r'''
-import base64, select, socket, sys, time
+import base64, select, socket, struct, sys, time
 
 LLDP = 0x88cc
 VLAN = (0x8100, 0x88a8, 0x9100)
@@ -64,6 +64,12 @@ for name in names:
     try:
         s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(3))
         s.bind((name, 0))
+        try:
+            idx = socket.if_nametoindex(name)
+            mreq = struct.pack("IHH8s", idx, 1, 0, b"")
+            s.setsockopt(263, 1, mreq)
+        except Exception:
+            pass
         s.setblocking(False)
         socks.append((name, s))
     except Exception as exc:
@@ -132,7 +138,7 @@ def _capture_script(ifaces: List[str], seconds: int, tool: str,
     for name in ifaces:
         safe = name.replace("/", "_")
         if tool == "tcpdump":
-            cap = ("tcpdump -i %s -s 0 -c %d -p -U -w $d/%s.pcap %s >/dev/null 2>&1 &"
+            cap = ("tcpdump -i %s -s 0 -c %d -U -w $d/%s.pcap %s >/dev/null 2>&1 &"
                    % (shlex.quote(name), count, safe, shlex.quote(pcap_filter)))
         else:
             cap = ("tshark -i %s -c %d -w $d/%s.pcap -f %s >/dev/null 2>&1 &"
