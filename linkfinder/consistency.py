@@ -100,3 +100,62 @@ def find(topology, log: Optional[Callable[[str], None]] = None) -> List[Dict[str
 def _label(topology, node_id: str) -> str:
     node = topology.nodes.get(node_id)
     return node.label if node is not None else node_id
+
+
+def _ipv4_on(node, iface) -> List[Tuple[str, int]]:
+    """(address, prefix) IPv4s configured on one interface of a node."""
+    out: List[Tuple[str, int]] = []
+    port = ((node.extra or {}).get("ports") or {}).get(iface) or {}
+    for a in port.get("addresses") or []:
+        a = str(a)
+        if ":" in a or "/" not in a:          # skip IPv6 and address-less
+            continue
+        ip, _slash, mask = a.partition("/")
+        if ip.count(".") == 3 and mask.isdigit():
+            out.append((ip, int(mask)))
+    return out
+
+
+def _network(ip: str, prefix: int) -> str:
+    import ipaddress
+    try:
+        return str(ipaddress.ip_network("%s/%d" % (ip, prefix), strict=False).network_address)
+    except ValueError:
+        return ""
+
+
+def subnets(topology, log: Optional[Callable[[str], None]] = None
+            ) -> List[Dict[str, Any]]:
+    """The two ends of a cable that cannot talk: different subnet, or the same
+    subnet with two different masks. A VLAN carries one subnet; a port on the
+    wrong one is a config error that leaves a link "up" and dead."""
+    say = log or (lambda _m: None)
+    found: List[Dict[str, Any]] = []
+    for edge in topology.edges.values():
+        if edge.a == edge.b:
+            continue
+        na, nb = topology.get(edge.a), topology.get(edge.b)
+        if na is None or nb is None:
+            continue
+        aa, bb = _ipv4_on(na, edge.a_iface), _ipv4_on(nb, edge.b_iface)
+        if not aa or not bb:
+            continue
+        verdict = detail = ""
+        for (ia, pa) in aa:
+            for (ib, pb) in bb:
+                neta, netb = _network(ia, pa), _network(ib, pb)
+                if neta and netb and neta == netb and pa != pb:
+                    verdict = "mismatch"
+                    detail = ("same subnet, two masks: %s/%d vs %s/%d - one end "
+                              "is misconfigured" % (ia, pa, ib, pb))
+                elif neta and netb and neta != netb:
+                    if not verdict:
+                        verdict = "warn"
+                        detail = ("ends are on different subnets: %s/%d vs %s/%d "
+                                  "- they cannot talk over this link" % (ia, pa, ib, pb))
+        if verdict:
+            edge.note("subnet", verdict=verdict, confidence="high", detail=detail)
+            found.append({"edge": edge.id, "verdict": verdict, "detail": detail})
+    if found:
+        say("  subnet: %d link(s) whose ends cannot talk" % len(found))
+    return found

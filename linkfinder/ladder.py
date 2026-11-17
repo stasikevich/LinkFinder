@@ -86,3 +86,8 @@ def walk(topology, views: List[Tuple[str, Any]],
         topology.fill_neighbour_ips()
     except Exception as problem:
         say("  neighbour-ip fill skipped: %s" % problem)
+    try:
+        from .consistency import subnets
+        subnets(topology, log=say)
+    except Exception as problem:
+        say("  subnet check skipped: %s" % problem)
