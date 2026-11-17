@@ -91,3 +91,8 @@ def walk(topology, views: List[Tuple[str, Any]],
         subnets(topology, log=say)
     except Exception as problem:
         say("  subnet check skipped: %s" % problem)
+    try:
+        from .consistency import one_sided
+        one_sided(topology, log=say)
+    except Exception as problem:
+        say("  carrier check skipped: %s" % problem)

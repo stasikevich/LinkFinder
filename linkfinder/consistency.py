@@ -159,3 +159,36 @@ def subnets(topology, log: Optional[Callable[[str], None]] = None
     if found:
         say("  subnet: %d link(s) whose ends cannot talk" % len(found))
     return found
+
+
+def _carrier_of(node, iface) -> str:
+    port = ((node.extra or {}).get("ports") or {}).get(iface) or {}
+    return str(port.get("carrier") or "").strip().lower()
+
+
+def one_sided(topology, log: Optional[Callable[[str], None]] = None
+              ) -> List[Dict[str, Any]]:
+    """A cable one end holds up while the other end is down - a far NIC that is
+    admin-down or dead with the fibre still in it. The link looks present from
+    the side that reported it and carries nothing."""
+    say = log or (lambda _m: None)
+    up = ("up", "1")
+    down = ("down", "0", "no-carrier")
+    found: List[Dict[str, Any]] = []
+    for edge in topology.edges.values():
+        if edge.a == edge.b:
+            continue
+        na, nb = topology.get(edge.a), topology.get(edge.b)
+        if na is None or nb is None:
+            continue
+        ca, cb = _carrier_of(na, edge.a_iface), _carrier_of(nb, edge.b_iface)
+        if not ca or not cb:
+            continue
+        if (ca in up and cb in down) or (ca in down and cb in up):
+            dead = _label(topology, edge.a) + " " + edge.a_iface if ca in down                 else _label(topology, edge.b) + " " + edge.b_iface
+            detail = "%s has no carrier while the other end is up" % dead
+            edge.note("carrier", verdict="warn", confidence="high", detail=detail)
+            found.append({"edge": edge.id, "detail": detail})
+    if found:
+        say("  carrier: %d link(s) up on one end only" % len(found))
+    return found

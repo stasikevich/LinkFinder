@@ -73,6 +73,22 @@ def test_subnet_clean():
           _edge_pair("172.40.0.40/24", "172.40.0.41/24"), [])
 
 
+def _carrier_pair(ca, cb):
+    t = Topology()
+    na = t.add_node(mgmt_ip="10.0.0.1", kind="host", state="scanned")
+    nb = t.add_node(mgmt_ip="10.0.0.2", kind="host", state="scanned")
+    na.extra["ports"] = {"eth0": {"carrier": ca}}
+    nb.extra["ports"] = {"eth0": {"carrier": cb}}
+    t.add_edge(na.id, "eth0", nb.id, "eth0", proto="LLDP", reported_by=na.id)
+    return consistency.one_sided(t)
+
+
+def test_one_sided_link():
+    check("up/down flagged", len(_carrier_pair("up", "0")), 1)
+    check("up/up silent", len(_carrier_pair("up", "up")), 0)
+    check("missing carrier silent", len(_carrier_pair("up", "")), 0)
+
+
 for fn in list(globals().values()):
     if callable(fn) and getattr(fn, "__name__", "").startswith("test_"):
         fn()
