@@ -334,3 +334,48 @@ def match_optics(results, log=None) -> None:
             if verdict.get("verdict") in ("mismatch", "warn"):
                 say("  optics on %s %s: %s" % (host, nb.local_iface,
                                                verdict.get("detail", "")))
+
+
+# Digital optical monitoring thresholds, deliberately loose so a healthy module
+# never cries wolf. Tx below -11 dBm is a weak or dying laser; Rx on an UP link
+# below -14 dBm is marginal and below -17 dBm is at most modules' sensitivity,
+# where the link is about to flap; a dark port legitimately reads very low Rx,
+# so Rx is only judged when the port has carrier. Over 70 C a module runs hot.
+TX_WEAK_DBM = -11.0
+RX_MARGINAL_DBM = -14.0
+RX_SENSITIVITY_DBM = -17.0
+HOT_C = 70.0
+
+
+def problems(modules: Dict[str, Any],
+             ports: Optional[Dict[str, Any]] = None) -> List[Dict[str, str]]:
+    """Optics that are lit but ailing - weak laser, marginal receive, too hot.
+
+    Worst first. Rx is read only where the port has carrier, because a module
+    in an unused port is dark by design and that is not a fault.
+    """
+    ports = ports or {}
+    out: List[Dict[str, str]] = []
+    for iface in sorted(modules):
+        optic = modules[iface] or {}
+        up = str((ports.get(iface) or {}).get("carrier") or "") == "up" \
+            or str((ports.get(iface) or {}).get("carrier") or "") == "1"
+        tx, rx = optic.get("tx_dbm"), optic.get("rx_dbm")
+        temp = optic.get("temperature_c")
+        if isinstance(rx, (int, float)) and up:
+            if rx <= RX_SENSITIVITY_DBM:
+                out.append({"iface": iface, "kind": "rx", "severity": "mismatch",
+                            "detail": "%s receives %.1f dBm - at or below most "
+                            "modules' sensitivity, the link may flap" % (iface, rx)})
+            elif rx < RX_MARGINAL_DBM:
+                out.append({"iface": iface, "kind": "rx", "severity": "warn",
+                            "detail": "%s receives %.1f dBm - marginal, clean the "
+                            "fibre or check the far laser" % (iface, rx)})
+        if isinstance(tx, (int, float)) and tx < TX_WEAK_DBM:
+            out.append({"iface": iface, "kind": "tx", "severity": "warn",
+                        "detail": "%s transmits %.1f dBm - a weak or failing laser"
+                        % (iface, tx)})
+        if isinstance(temp, (int, float)) and temp > HOT_C:
+            out.append({"iface": iface, "kind": "temp", "severity": "warn",
+                        "detail": "%s optic runs at %.0f C" % (iface, temp)})
+    return out

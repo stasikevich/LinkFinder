@@ -229,3 +229,27 @@ if FAILURES:
         print("  " + line)
     sys.exit(1)
 print("all optics checks passed")
+
+
+def test_optics_problems():
+    from linkfinder import optics as _o
+    mods = {"up_low": {"rx_dbm": -18.0, "tx_dbm": -2.0},
+            "up_marg": {"rx_dbm": -15.0, "tx_dbm": -2.0},
+            "weak_tx": {"tx_dbm": -13.0},
+            "dark": {"rx_dbm": -30.0},
+            "hot": {"temperature_c": 80.0, "tx_dbm": -2.0}}
+    ports = {"up_low": {"carrier": "up"}, "up_marg": {"carrier": "up"},
+             "dark": {"carrier": ""}}
+    pr = _o.problems(mods, ports)
+    by = {}
+    for i in pr:
+        by.setdefault(i["iface"], []).append((i["kind"], i["severity"]))
+    assert by.get("up_low") == [("rx", "mismatch")], by.get("up_low")
+    assert by.get("up_marg") == [("rx", "warn")], by.get("up_marg")
+    assert by.get("weak_tx") == [("tx", "warn")], by.get("weak_tx")
+    assert "dark" not in by, "a dark port must not be flagged"
+    assert ("temp", "warn") in by.get("hot", [])
+    print("  optics.problems checks passed")
+
+
+test_optics_problems()

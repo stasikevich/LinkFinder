@@ -1538,6 +1538,14 @@ def device_facts(node: Dict[str, Any],
         ph_lines = _port_health_lines(ph)
         if ph_lines:
             sections.append({"title": "Port health", "lines": ph_lines})
+    opt = extra.get("optics")
+    if isinstance(opt, dict) and opt:
+        from .optics import problems as _optic_problems
+        oh = _optic_problems(opt, extra.get("ports") or {})
+        if oh:
+            sections.append({"title": "Optics health",
+                             "lines": ["%s %s" % ("!" if i["severity"] == "mismatch"
+                                                  else "-", i["detail"]) for i in oh]})
     looped = _self_cable_lines(node)
     if looped:
         sections.append({"title": "Cabled to itself", "lines": looped})
