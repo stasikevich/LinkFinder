@@ -28,7 +28,9 @@ GROUP_MAC_FILTER = (
     " or (ether dst 01:80:c2:00:00:0e)"
     " or (ether dst 01:80:c2:00:00:03)"
     " or (ether dst 01:80:c2:00:00:00 and ether[12:2] > 1500)"
-    " or (ether dst 01:00:0c:cc:cc:cc and ether[20:2] = 0x2000)")
+    " or (ether dst 01:00:0c:cc:cc:cc and ether[20:2] = 0x2000)"
+    " or (vlan and ether proto 0x88cc)"
+    " or (vlan and vlan and ether proto 0x88cc)")
 """Must match LLDP and CDP and nothing else: capture stops at the first hit, and
 01:80:c2:00:00:00 is shared with STP, whose BPDUs arrive every 2s and would win
 every time. The length/protocol tests exclude BPDUs and the other Cisco SNAP
@@ -1198,7 +1200,7 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
                 say("  %d port(s) hear several peers - a switch in the middle, "
                     "still listening on them: %s" % (len(shared), ", ".join(shared)))
 
-    captured = {"ran": False}
+    captured = {"ran": False, "toolbox": False, "full": False}
     if pending:
         has_tcpdump = ssh.have("tcpdump")
         has_tshark = ssh.have("tshark")
@@ -1240,6 +1242,7 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
                 rc, out, _err = ssh.sudo("sh -c %s" % shlex.quote(script),
                                          timeout=listen_for + 20)
                 captured["ran"] = rc == 0 and capture_landed(out)
+                captured["full"] = bool(full)
                 if rc == 0 and not captured["ran"]:
                     say("    %s wrote no capture file at all" % tool)
                 elif rc != 0:
@@ -1261,6 +1264,14 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
                     say("    could not remember which ports spoke: %s" % problem)
                 return heard
             step("%s-capture" % tool, run_capture, only_for=pending)
+        elif platform == "suse" and (ssh.have("python3") or ssh.have("python")):
+            # On SUSE the host carries no tcpdump. Entering toolbox costs 10-30s
+            # of startup that eats a slow LLDP tick's window, so when python is
+            # here we listen host-side with the raw socket straight away - it
+            # needs only python and root and hears LLDP and CDP, tagged or not.
+            # The post-capture block below runs it; nothing to capture here.
+            say("  SUSE host with no tcpdump - listening host-side with the raw"
+                " sniffer instead of entering toolbox")
         elif platform == "suse" and ssh.have("toolbox"):
             say("  no tcpdump on the host; entering toolbox for %ds" % seconds)
             script = _capture_script(pending, seconds, "tcpdump")
@@ -1268,6 +1279,7 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
             def run_toolbox() -> List[Neighbor]:
                 out = _toolbox_run(ssh, script, seconds)
                 captured["ran"] = capture_landed(out)
+                captured["toolbox"] = True
                 if NO_TOOL_MARK in out:
                     say("    there is no tcpdump inside the toolbox either")
                 elif out.strip() and not captured["ran"]:
@@ -1277,21 +1289,28 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
             step("toolbox-tcpdump", run_toolbox, only_for=pending)
 
     pending = missing()
+    clean_full_host_capture = (captured["ran"] and not captured["toolbox"]
+                               and captured["full"])
     if pending and agent_heard and all(p in agent_covers for p in pending):
         say("  trusting the host's own LLDP agent for the quiet port(s): %s"
             % ", ".join(pending))
-    elif pending and captured["ran"]:
-        say("  not repeating it with the raw sniffer: the %ds capture ran and"
-            " heard nothing on %s" % (seconds, ", ".join(pending)))
+    elif pending and clean_full_host_capture:
+        # A full-length host capture that heard nothing is real silence; a raw
+        # sniffer would only pay the same window again for no new answer.
+        say("  the %ds capture ran full on the host and heard nothing on %s"
+            % (seconds, ", ".join(pending)))
     elif pending:
         python = "python3" if ssh.have("python3") else ("python" if ssh.have("python") else "")
         if python:
-            # The raw sniffer is the last resort, reached only when tcpdump
-            # could not land a capture at all. A host should never pay the full
-            # window twice, so this leg is capped - it still catches an LLDP
-            # tick (30s) and gets one shot at a CDP one.
-            fb_seconds = min(int(seconds), 45)
-            say("  falling back to the raw-socket sniffer (%s) for %ds" % (python, fb_seconds))
+            # Reached when no capture ran (the SUSE host-side path) or one
+            # LANDED but heard nothing on a compromised window: toolbox spends
+            # 10-30s just entering the container, and a shortened host capture
+            # proves nothing about what it did not hear. The raw socket starts
+            # at once and walks VLAN tags the pcap filter can miss, so a slow
+            # tick (an Aruba mgmt uplink ticks every ~40s) is caught here.
+            fb_seconds = int(seconds) if captured["ran"] else min(int(seconds), 60)
+            say("  listening host-side with the raw-socket sniffer (%s) for %ds"
+                " on %s" % (python, fb_seconds, ", ".join(pending)))
 
             def sniff() -> List[Neighbor]:
                 args = "%s %d" % (shlex.quote(",".join(pending)), fb_seconds)
@@ -1309,6 +1328,9 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
                         found.append(nb)
                 return found
             step("raw-sniffer", sniff, only_for=pending)
+        elif captured["ran"]:
+            say("  the %ds capture heard nothing on %s and there is no python"
+                " here for a raw sniffer" % (seconds, ", ".join(pending)))
 
     # Which MAC belongs to which port of this device. The neighbour pairing
     # needs it to turn a heard MAC back into a host and a port, and the rows
