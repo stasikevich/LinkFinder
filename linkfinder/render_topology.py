@@ -1445,6 +1445,48 @@ def _netbox_lines(record: Dict[str, Any]) -> List[str]:
     return out
 
 
+def _storage_lines(store: Dict[str, Any]) -> List[str]:
+    """Local disks, the controller in front of them and any RAID, in short.
+
+    One line per physical disk with its size and media, one for the controller
+    when a card is found, and one per array - md or a controller's own. iSCSI
+    targets are summed, not listed, so a host with a dozen of them stays legible.
+    """
+    lines: List[str] = []
+    for d in store.get("disks") or []:
+        media = d.get("media") or d.get("bus") or "disk"
+        bits = [d.get("name", ""), "%s %s" % (d.get("size", ""), media.upper())]
+        if d.get("model"):
+            bits.append(d["model"])
+        if d.get("behind_raid"):
+            bits.append("behind RAID")
+        lines.append(" - ".join(b for b in bits if b))
+    raid = store.get("raid") or {}
+    for ctrl in raid.get("controllers") or []:
+        name = ctrl.get("model") or ctrl.get("driver") or "RAID controller"
+        drv = ctrl.get("driver")
+        lines.append("controller: %s%s" % (name, " (%s)" % drv if drv and drv not in name else ""))
+    for a in raid.get("software") or []:
+        tail = (", %s" % a["progress"]) if a.get("progress") else ""
+        lines.append("%s %s %s%s" % (a.get("name", ""), a.get("level", ""),
+                                     a.get("state", ""), tail))
+    for a in raid.get("hardware") or []:
+        where = (" on %s" % a["controller"]) if a.get("controller") else ""
+        size = (", %s" % a["size"]) if a.get("size") else ""
+        lines.append("%s %s %s%s%s" % (a.get("name", ""), a.get("level", ""),
+                                       a.get("state", ""), size, where))
+    if raid.get("note"):
+        lines.append(raid["note"])
+    said_raid = bool(raid.get("controllers") or raid.get("software")
+                     or raid.get("hardware") or raid.get("note"))
+    if store.get("disks") and not said_raid:
+        lines.append("RAID not configured")
+    iscsi = store.get("iscsi") or []
+    if iscsi:
+        lines.append("%d iSCSI disk(s) attached" % len(iscsi))
+    return lines
+
+
 def device_facts(node: Dict[str, Any],
                  plan: Optional[Dict[str, Any]] = None,
                  found: Optional[Dict[str, str]] = None,
@@ -1472,6 +1514,11 @@ def device_facts(node: Dict[str, Any],
             lines = builder(value)
             if lines:
                 sections.append({"title": title, "lines": lines})
+    store = extra.get("storage")
+    if isinstance(store, dict) and (store.get("disks") or store.get("raid")):
+        disk_lines = _storage_lines(store)
+        if disk_lines:
+            sections.append({"title": "Disks and RAID", "lines": disk_lines})
     looped = _self_cable_lines(node)
     if looped:
         sections.append({"title": "Cabled to itself", "lines": looped})
@@ -1560,7 +1607,7 @@ def device_facts(node: Dict[str, Any],
     for key, value in sorted(extra.items()):
         if key in ("ptp", "sensors", "optics", "bonds", "bond_detail",
                    "netns_hidden", "identified", "netns_vfs", "ports", "netns",
-                   "ipmi", "perm_macs", "health", "usb"):
+                   "ipmi", "perm_macs", "health", "usb", "storage"):
             continue
         if isinstance(value, dict) and value:
             held.append("%s (%d)" % (SKIP_ON_PANEL.get(key, key), len(value)))
