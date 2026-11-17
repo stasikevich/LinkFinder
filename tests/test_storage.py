@@ -1,9 +1,10 @@
 """Disks and RAID, from lsblk to a controller's own CLI.
 
 The hardware-RAID parsers matter most here: no bench has a controller CLI
-installed, so without these fixtures the ssacli/storcli paths would ship
-untested and could silently return nothing the day a real array appears. Each
-one is fed a captured sample and checked for the array it must find.
+installed, so without these fixtures the storcli/ssacli/megacli/arcconf paths
+would ship untested and could silently return nothing the day a real array
+appears. Each one is fed a captured sample and checked for the array it must
+find, and the off-PATH lookup is checked too.
 
 Idea, design and architecture by Stas Mitin.
 Copyright (c) 2026 Stas Mitin. SPDX-License-Identifier: MIT
@@ -53,7 +54,6 @@ def test_controllers():
     check("one controller", len(ctrls), 1)
     check("controller model", "Smart Storage" in ctrls[0]["model"], True)
     check("driver folded in", ctrls[0]["driver"], "smartpqi")
-    # driver-only, no lspci (a host with no lspci still finds a MegaRAID)
     only = storage.detect_controllers("", "megaraid_sas mpt3sas")
     check("driver-only controller", only[0]["driver"], "megaraid_sas")
     check("plain HBA is not RAID", storage.detect_controllers("", "ahci nvme"), [])
@@ -85,8 +85,7 @@ def test_storcli():
     check("vd controller", vds[0]["controller"], "controller 0")
 
 
-def test_ssacli():
-    cfg = """
+SSACLI = """
 Smart Array P440ar in Slot 0 (Embedded)
 
    Array A (SAS, Unused Space: 0 MB)
@@ -98,13 +97,62 @@ Smart Array P440ar in Slot 0 (Embedded)
 
       logicaldrive 2 (1.09 TB, RAID 5, Recovering)
 """
-    arr = storage.parse_ssacli(cfg)
+
+
+def test_ssacli():
+    arr = storage.parse_ssacli(SSACLI)
     check("two logical drives", len(arr), 2)
     check("ld1 level", arr[0]["level"], "raid1")
     check("ld1 state", arr[0]["state"], "OK")
     check("ld1 controller", arr[0]["controller"], "Smart Array P440ar slot 0")
     check("ld1 two members", len(arr[0]["members"]), 2)
     check("ld2 recovering", arr[1]["state"], "Recovering")
+
+
+MEGACLI = """Adapter 0 -- Virtual Drive Information:
+Virtual Drive: 0 (Target Id: 0)
+Name                :
+RAID Level          : Primary-5, Secondary-0, RAID Level Qualifier-3
+Size                : 2.728 TB
+State               : Optimal
+Number Of Drives    : 4
+"""
+
+
+def test_megacli():
+    arr = storage.parse_megacli(MEGACLI)
+    check("megacli one vd", len(arr), 1)
+    check("megacli level", arr[0]["level"], "raid5")
+    check("megacli state", arr[0]["state"], "Optimal")
+    check("megacli size", arr[0]["size"], "2.728 TB")
+
+
+ARCCONF = """Logical device number 0
+   Logical device name                      : Array0
+   RAID level                               : 5
+   Status of logical device                 : Optimal
+   Size                                     : 3815280 MB
+"""
+
+
+def test_arcconf():
+    arr = storage.parse_arcconf(ARCCONF)
+    check("arcconf one ld", len(arr), 1)
+    check("arcconf level", arr[0]["level"], "raid5")
+    check("arcconf state", arr[0]["state"], "Optimal")
+
+
+def test_find_cli_off_path():
+    # command -v finds nothing, but the binary is at a known absolute path
+    def run(cmd):
+        if cmd.startswith("command -v"):
+            return ""
+        if "test -x /opt/smartstorageadmin/ssacli/bin/ssacli" in cmd:
+            return "yes\n"
+        return ""
+    cli = storage._find_cli(run, ("ssacli", "hpssacli"),
+                            ("/usr/sbin/ssacli", "/opt/smartstorageadmin/ssacli/bin/ssacli"))
+    check("found off-PATH cli", cli, "/opt/smartstorageadmin/ssacli/bin/ssacli")
 
 
 for fn in list(globals().values()):

@@ -51,10 +51,26 @@ _LSPCI_RAID = re.compile(
     r"(RAID bus controller|Smart Array|Smart Storage|MegaRAID|PERC|"
     r"Serial Attached SCSI controller.*(Smart|MegaRAID|PQI))", re.I)
 
-# Management CLIs, per family. Presence is what decides whether array detail is
-# read; absence is normal and simply leaves the layout unread.
-HW_CLIS = ("storcli64", "storcli", "perccli64", "perccli",
-           "ssacli", "hpssacli", "MegaCli64", "MegaCli")
+# Management CLIs, per controller family. A box can be any vendor and any
+# distro, so each family lists every name it ships under AND the absolute paths
+# a package drops it in when it is not on PATH. Presence is what decides whether
+# the array layout is read; absence is normal and leaves it unread.
+HW_FAMILIES = (
+    ("storcli", ("storcli64", "storcli", "perccli64", "perccli"),
+     ("/opt/MegaRAID/storcli/storcli64", "/opt/MegaRAID/perccli/perccli64",
+      "/opt/dell/perccli/perccli64", "/usr/sbin/storcli64",
+      "/usr/sbin/perccli64", "/usr/sbin/storcli")),
+    ("ssacli", ("ssacli", "hpssacli", "hpacucli"),
+     ("/usr/sbin/ssacli", "/opt/smartstorageadmin/ssacli/bin/ssacli",
+      "/usr/sbin/hpssacli", "/opt/hp/hpssacli/bld/hpssacli",
+      "/usr/sbin/hpacucli", "/opt/compaq/hpacucli/bld/hpacucli")),
+    ("megacli", ("MegaCli64", "MegaCli", "megacli"),
+     ("/opt/MegaRAID/MegaCli/MegaCli64", "/usr/sbin/MegaCli64",
+      "/usr/sbin/megacli")),
+    ("arcconf", ("arcconf",),
+     ("/usr/sbin/arcconf", "/usr/Arcconf/arcconf",
+      "/opt/pmc/arcconf/arcconf")),
+)
 
 # Model strings a controller gives a logical drive instead of a real product.
 _LOGICAL_MODELS = ("logical volume", "logicaldrive", "ld ", "virtual disk")
@@ -273,11 +289,81 @@ def parse_ssacli(text: str) -> List[Dict[str, Any]]:
     return out
 
 
-def _run_hw_cli(run: Run, tool: str) -> List[Dict[str, Any]]:
-    if tool.startswith(("storcli", "perccli")):
-        return parse_storcli(run("%s /call show all J 2>/dev/null" % tool))
-    if tool.startswith(("ssacli", "hpssacli")):
-        return parse_ssacli(run("%s ctrl all show config 2>/dev/null" % tool))
+# Virtual Drive: 0 (Target Id: 0) ... RAID Level : Primary-5, Secondary-0 ...
+_MC_VD = re.compile(r"Virtual Drive\s*:\s*(\d+)", re.I)
+_MC_LEVEL = re.compile(r"RAID Level\s*:\s*Primary-(\d+)", re.I)
+_MC_SIZE = re.compile(r"^Size\s*:\s*(.+)$", re.I | re.M)
+_MC_STATE = re.compile(r"State\s*:\s*(.+)", re.I)
+
+
+def parse_megacli(text: str) -> List[Dict[str, Any]]:
+    """Virtual drives from `MegaCli -LDInfo -Lall -aALL` (LSI/Dell, text)."""
+    out: List[Dict[str, Any]] = []
+    blocks = re.split(r"(?=Virtual Drive\s*:\s*\d+)", text or "")
+    for block in blocks:
+        vd = _MC_VD.search(block)
+        if not vd:
+            continue
+        lvl = _MC_LEVEL.search(block)
+        size = _MC_SIZE.search(block)
+        state = _MC_STATE.search(block)
+        out.append({
+            "controller": "", "name": "VD %s" % vd.group(1),
+            "level": "raid%s" % lvl.group(1) if lvl else "",
+            "state": state.group(1).strip() if state else "",
+            "size": size.group(1).strip() if size else "", "source": "megacli"})
+    return out
+
+
+# Logical device number 0 / RAID level : 5 / Status of logical device : Optimal
+_AC_LD = re.compile(r"Logical device number\s+(\d+)", re.I)
+_AC_LEVEL = re.compile(r"RAID level\s*:\s*(\S+)", re.I)
+_AC_STATE = re.compile(r"Status of logical device\s*:\s*(.+)", re.I)
+_AC_SIZE = re.compile(r"^\s*Size\s*:\s*(.+)$", re.I | re.M)
+
+
+def parse_arcconf(text: str) -> List[Dict[str, Any]]:
+    """Logical devices from `arcconf GETCONFIG 1 LD` (Adaptec/Microsemi)."""
+    out: List[Dict[str, Any]] = []
+    blocks = re.split(r"(?=Logical device number\s+\d+)", text or "")
+    for block in blocks:
+        ld = _AC_LD.search(block)
+        if not ld:
+            continue
+        lvl = _AC_LEVEL.search(block)
+        state = _AC_STATE.search(block)
+        size = _AC_SIZE.search(block)
+        level = (lvl.group(1).strip() if lvl else "")
+        out.append({
+            "controller": "", "name": "logicaldevice %s" % ld.group(1),
+            "level": "raid" + level if level.isdigit() else level.lower(),
+            "state": state.group(1).strip() if state else "",
+            "size": size.group(1).strip() if size else "", "source": "arcconf"})
+    return out
+
+
+def _find_cli(run: Run, names, paths) -> str:
+    """The runnable path for a family: a name on PATH, or a known location."""
+    for name in names:
+        hit = (run("command -v %s 2>/dev/null" % name) or "").strip()
+        if hit:
+            return hit.splitlines()[0].strip()
+    for path in paths:
+        if (run("test -x %s && echo yes 2>/dev/null" % path) or "").strip() == "yes":
+            return path
+    return ""
+
+
+def _run_hw_cli(run: Run, family: str, cli: str) -> List[Dict[str, Any]]:
+    q = cli if " " not in cli else '"%s"' % cli
+    if family == "storcli":
+        return parse_storcli(run("%s /call show all J 2>/dev/null" % q))
+    if family == "ssacli":
+        return parse_ssacli(run("%s ctrl all show config 2>/dev/null" % q))
+    if family == "megacli":
+        return parse_megacli(run("%s -LDInfo -Lall -aALL 2>/dev/null" % q))
+    if family == "arcconf":
+        return parse_arcconf(run("%s GETCONFIG 1 LD 2>/dev/null" % q))
     return []
 
 
@@ -302,12 +388,16 @@ def collect(run: Run, log: Optional[Callable[[str], None]] = None) -> Dict[str, 
     if software:
         raid["software"] = software
 
-    # The array layout needs the controller's own CLI; ask only what is here.
+    # The array layout needs the controller's own CLI; find whichever family is
+    # installed, wherever this distro put it, and ask only that one.
     hardware: List[Dict[str, Any]] = []
-    present = [t for t in HW_CLIS
-               if (run("command -v %s 2>/dev/null" % t) or "").strip()]
-    for tool in present:
-        rows = _run_hw_cli(run, tool)
+    present: List[str] = []
+    for family, names, paths in HW_FAMILIES:
+        cli = _find_cli(run, names, paths)
+        if not cli:
+            continue
+        present.append(cli)
+        rows = _run_hw_cli(run, family, cli)
         if rows:
             hardware.extend(rows)
             break
@@ -318,7 +408,8 @@ def collect(run: Run, log: Optional[Callable[[str], None]] = None) -> Dict[str, 
         # "logical" disk but its layout cannot be read. Say so rather than imply
         # there is no RAID.
         raid["note"] = ("a RAID controller is present; install its CLI "
-                        "(ssacli / storcli / perccli) to read the array layout")
+                        "(ssacli / storcli / perccli / megacli / arcconf) "
+                        "to read the array layout")
     if present:
         raid["cli_present"] = present
 
