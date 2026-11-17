@@ -1465,8 +1465,15 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
     if _storage.get("disks") or _storage.get("raid"):
         result.extra["storage"] = _storage
 
-    hardware.attach(result, hardware.read_linux(
-        lambda cmd: ssh.run(cmd, timeout=30)[1]), say)
+    def _hw_run(cmd: str) -> str:
+        # The DMI serials (product/chassis/board) are root-only (-r--------) on
+        # many boards, and with no serial NetBox has nothing to match the box
+        # by - it comes back "not checked". Read under sudo; fall back to the
+        # unprivileged read so a host that cannot sudo still gets the
+        # world-readable fields (product name, vendor).
+        out = ssh.sudo(cmd, timeout=30)[1]
+        return out if out.strip() else ssh.run(cmd, timeout=30)[1]
+    hardware.attach(result, hardware.read_linux(_hw_run), say)
 
     # Say what we decided this host is, so the scan it gets is legible: a rack
     # server has no radio console cable (its COM ports are left shut), a bench
