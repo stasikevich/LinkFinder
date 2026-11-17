@@ -105,18 +105,18 @@ def vendor(mac: str) -> str:
     digits = HEX.sub("", str(mac or "")).upper()
     if len(digits) < 6:
         return ""
-    vm = vm_maker(digits)
-    if vm:
-        return vm
-    if made_up(digits):
-        return ""
-    known = table()
-    for size in LENGTHS:
-        if len(digits) >= size:
-            hit = known.get(digits[:size])
-            if hit:
-                return hit
-    return ""
+    # A registered OUI is named by the register, even a hypervisor's own block
+    # (VMware, Xen): keep that name. A guest MAC with a locally-administered,
+    # unregistered prefix (QEMU/KVM) has no register entry, so the hypervisor
+    # table names it instead of leaving it blank.
+    if not made_up(digits):
+        known = table()
+        for size in LENGTHS:
+            if len(digits) >= size:
+                hit = known.get(digits[:size])
+                if hit:
+                    return hit
+    return vm_maker(digits)
 
 
 # What a maker is known to build, so a device we only have a MAC for is still
@@ -133,7 +133,8 @@ MAKER_KIND = [
                 "brocade", "allied telesis", "edge-core", "accton", "ubiquiti")),
     ("host", ("super micro", "supermicro", "dell inc", "lenovo", "asustek",
               "gigabyte", "quanta computer", "inspur", "intel corporate")),
-    ("vm", ("virtual machine",)),
+    ("vm", ("virtual machine", "vmware", "virtualbox", "qemu", "kvm",
+            "xensource", "parallels", "proxmox")),
     ("phone", ("polycom", "yealink", "grandstream", "snom")),
     ("bmc", ("american megatrends", "aspeed")),
 ]

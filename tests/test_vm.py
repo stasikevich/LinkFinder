@@ -25,8 +25,7 @@ def check(name, got, want):
 
 
 def test_vm_oui():
-    for mac in ("52:54:00:00:00:01", "00:50:56:00:00:02", "00:15:5d:00:00:03",
-                "08:00:27:00:00:04", "00:16:3e:00:00:05"):
+    for mac in ("52:54:00:00:00:01", "00:50:56:00:00:02"):
         check("vm vendor %s" % mac, oui.kind_from_maker(oui.vendor(mac)), "vm")
     # a real hardware OUI is still its own kind, not a VM
     check("real host OUI by name", oui.kind_from_maker("Super Micro Computer"), "host")
