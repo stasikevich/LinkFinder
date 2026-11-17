@@ -25,13 +25,13 @@ def check(name, got, want):
 
 
 def test_vm_oui():
-    for mac in ("52:54:00:48:6e:ad", "00:50:56:aa:bb:cc", "00:15:5d:01:02:03",
-                "08:00:27:11:22:33", "00:16:3e:44:55:66"):
+    for mac in ("52:54:00:00:00:01", "00:50:56:00:00:02", "00:15:5d:00:00:03",
+                "08:00:27:00:00:04", "00:16:3e:00:00:05"):
         check("vm vendor %s" % mac, oui.kind_from_maker(oui.vendor(mac)), "vm")
     # a real hardware OUI is still its own kind, not a VM
-    check("real host OUI", oui.kind_from_maker(oui.vendor("3c:ec:ef:38:c4:54")), "host")
+    check("real host OUI by name", oui.kind_from_maker("Super Micro Computer"), "host")
     # a random locally-administered MAC that is not a known hypervisor -> nothing
-    check("unknown local MAC", oui.vendor("52:66:ca:7d:86:65"), "")
+    check("unknown local MAC", oui.vendor("02:00:00:00:00:09"), "")
 
 
 def test_fill_neighbour_ips():
@@ -39,15 +39,15 @@ def test_fill_neighbour_ips():
     # a scanned host whose ARP table names a VM MAC at a routable IPv4
     host = t.add_node(mgmt_ip="10.0.0.1", kind="host", state="scanned")
     host.extra["neighbours"] = {
-        "172.50.0.254": {"mac": "52:54:00:48:6e:ad", "state": "REACHABLE"},
-        "fe80::5054:ff:fe48:6ead": {"mac": "52:54:00:48:6e:ad", "state": "STALE"},
+        "10.9.9.254": {"mac": "52:54:00:00:00:06", "state": "REACHABLE"},
+        "fe80::5054:ff:fe00:0006": {"mac": "52:54:00:00:00:06", "state": "STALE"},
     }
     # the VM, invented over IPv6 with only its fe80
-    vm = t.add_node(chassis_id="52:54:00:48:6e:ad", kind="vm", state="unscanned",
-                    mgmt_ip="fe80::5054:ff:fe48:6ead")
+    vm = t.add_node(chassis_id="52:54:00:00:00:06", kind="vm", state="unscanned",
+                    mgmt_ip="fe80::5054:ff:fe00:0006")
     filled = t.fill_neighbour_ips()
     check("one node filled", filled, 1)
-    check("routable first", vm.mgmt_ips[0], "172.50.0.254")
+    check("routable first", vm.mgmt_ips[0], "10.9.9.254")
     check("fe80 dropped", any("fe80" in a for a in vm.mgmt_ips), False)
 
 
