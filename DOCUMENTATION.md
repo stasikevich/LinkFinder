@@ -140,6 +140,7 @@ under them the ports of whichever is selected.
 | Control | Meaning |
 |---|---|
 | **SSH key file** | Private key instead of a password. |
+| **Root (su -)** | Root password for a login that cannot sudo (it su's to root instead). The per-host logins table has a column for it too. |
 | **BMC user / password** | Redfish only. Empty means reuse the SSH credentials. |
 | **Switches (SNMP)** | Switches that may be asked. `address` or `address@community`. |
 | **SNMP community** | Default community. |
@@ -315,6 +316,7 @@ saved once works in both front ends.
 | `-m, --mode` | `auto`, `ssh`, `linux`, `esxi`, `windows`, `windows-local`, `bmc`, `switch`, `switch-cli`, `pdu`. |
 | `-u, --user`, `-p, --password` | SSH credentials. The password is also used for `sudo`. |
 | `--sudo-password` | When sudo differs from the login password. |
+| `--become-password` | Root password for `su -`, for a login that cannot sudo (a console account that su's to root). Also settable as the `BECOME_PASSWORD` environment variable, or per host. |
 | `-i, --key FILE` | SSH private key. |
 | `--ssh-port N` | Default 22. |
 | `--cred USER:PASSWORD` | An extra credential set, repeatable. Only tried when the previous one was actively **rejected**, so attempts are not wasted on a device that is simply not answering. |
@@ -1081,6 +1083,103 @@ for; guessing from one reading is how a tool earns a reputation for crying wolf.
 **Unverified on hardware.** The switch this was written beside runs no spanning
 tree and publishes none of these objects. The decoding is covered by tests
 against a fake bridge and has never been read off a live one.
+
+---
+
+## 6a3. The box itself - disks, SMART, and system health
+
+Discovery answers "what is this cabled to"; these answer "is the machine under
+the cables healthy". All of it is read on the host itself, read-only, and each
+part is skipped in silence when the tool it needs is not installed.
+
+### Disks and RAID
+
+`linkfinder/storage.py`, on the "Disks and RAID" panel of each Linux host.
+
+- The disks come from `lsblk` - NVMe, SSD or HDD, with size, model and serial. A
+  controller's `LOGICAL VOLUME` is marked as sitting behind RAID; iSCSI and USB
+  disks are split off (iSCSI is summed, not listed one by one).
+- **The RAID controller is found with no vendor tool.** `lspci` names the card
+  where it is there; otherwise the driver each SCSI host loaded in sysfs
+  (smartpqi, hpsa, megaraid_sas, aacraid, ...) is enough to say "there is a Smart
+  Array here". Plain HBAs (ahci, nvme, mpt3sas) are not reported as RAID.
+- Software (md) RAID comes from `/proc/mdstat` - level, members, degraded, rebuild
+  percent.
+- The array's own layout (which disks, what level, healthy or rebuilding) needs
+  the controller's CLI - ssacli / hpssacli, storcli / perccli, MegaCli, arcconf.
+  It is read only when installed, found on PATH or at the absolute path a package
+  drops it in. Without it the controller and the logical volumes still show, just
+  not the layout, and the panel says so rather than implying there is no RAID.
+
+`lsblk`, `/proc/mdstat` and sysfs are world-readable; only `lspci` and the vendor
+CLIs are run under sudo.
+
+### Disk SMART
+
+`smartctl -H -A`, per disk, on the privileged channel - it needs root to open the
+device, and is skipped where smartctl is absent. Both shapes are parsed: an NVMe's
+key/value block (percentage used, available spare, media errors, temperature,
+power-on hours) and a SATA/SAS attribute table. Only the actionable is flagged: a
+drive reporting FAILED or a non-zero critical warning, spare below its threshold,
+reallocated / pending / offline sectors, media errors, or wear past ninety
+percent. The panel shows SMART OK / per-cent worn / temperature / hours per disk.
+
+### System health
+
+`linkfinder/syshealth.py`, on the "System health" panel.
+
+Every cable can be green while the machine underneath is in trouble, and none of
+it shows on the wire. The host's own `/proc`, `df`, `systemctl` and `timedatectl`
+are read - all world-readable, no sudo - and `iostat` when it happens to be
+installed (absent, the I/O-wait figure is simply left unread). It reports load
+against the core count, memory and swap, each real filesystem's fill, the clock's
+NTP sync, a pending reboot and any failed unit, and it flags only what a person
+would go and fix:
+
+- a filesystem past 90% full (a real problem) or past 80% (a warning),
+- memory available down to a few percent, or swap nearly gone,
+- a run queue piled far above the core count,
+- I/O wait pinned high, with the busiest disk named,
+- a clock not synchronised to NTP,
+- a systemd unit that failed - minus the noise systemd always lists (a transient
+  run scope, the wait-online shim).
+
+Thresholds are deliberately high so a busy-but-fine server stays silent. Even on a
+healthy box the panel shows the context - load, memory, the fullest filesystems,
+uptime - so there is always something to read.
+
+---
+
+## 6a4. Virtual machines, and the host running them
+
+`linkfinder/vmlinks.py` and `linkfinder/kvm.py`. A guest is a real peer, not
+plumbing to drop, so it is drawn - but drawn as what it is, a machine running on a
+host, not a box floating beside everything.
+
+- **A guest is matched to its host, not guessed.** A hypervisor's tap carries the
+  guest's own hardware address: a macvtap keeps it unchanged, and libvirt's vnet
+  end is `fe:54:00` plus the guest's last five bytes. The match is made on that
+  and nothing else - a guest with no matching tap stays unconnected rather than
+  being attached to the likeliest host.
+- **A KVM guest is named by the host that runs it.** On a host with `virsh`, the
+  running guests are read from libvirt - name, interfaces, and the guest's address
+  - and drawn as named machines (`vm-web01`, not a bare MAC or a lone `fe80::`). A
+  guest is given its IPv4 and only its IPv4; a link-local address on a machine
+  reads as a fault, and the libvirt name is the identity that matters. virsh needs
+  root. Without it the guests fall back to a short list on the host panel.
+- **A guest's own tap is not a second device.** The tap address the host holds in
+  its neighbour cache is folded out of the drawing, so the guest appears once, by
+  name, not twice.
+
+### A neighbour that says nothing is not drawn
+
+A device learned only as a hardware address with a link-local address and no name,
+never scanned and not a switch, radio or VM, is a MAC on a segment and nothing
+more. Drawn, it is a question mark the map cannot answer, so it is dropped.
+Anything that carries an identity - a name, a routable address, or a known kind -
+is kept. There is no address there to reach, so raising the depth does not recover
+it; the only way to say more about such a neighbour is to give the tool a login for
+it.
 
 ---
 
