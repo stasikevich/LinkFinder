@@ -1518,6 +1518,49 @@ def _port_health_lines(health: Dict[str, Any]) -> List[str]:
         lines.append("%s %s" % (mark, issue.get("detail", "")))
     return lines
 
+def _sys_uptime(sec: int) -> str:
+    d, rem = divmod(int(sec), 86400)
+    h, m = rem // 3600, (rem % 3600) // 60
+    if d:
+        return "%dd %dh" % (d, h)
+    return "%dh %dm" % (h, m) if h else "%dm" % m
+
+
+def _system_health_lines(sh: Dict[str, Any]) -> List[str]:
+    """How the machine itself is doing - a short status even when healthy, then
+    one line per finding worth fixing. Load against the core count, memory free,
+    the fullest filesystems, the busiest disk and uptime give context; a filling
+    disk, memory pressure or a drifted clock is called out below them."""
+    from .storage import human_size
+    lines: List[str] = []
+    load = sh.get("load") or {}
+    if load.get("5") is not None and load.get("cpus"):
+        lines.append("load %.2f / %.2f / %.2f over %d core(s)"
+                     % (load.get("1") or 0, load.get("5") or 0,
+                        load.get("15") or 0, load["cpus"]))
+    mem = sh.get("mem") or {}
+    if mem.get("total_kb"):
+        lines.append("memory %s free of %s"
+                     % (human_size((mem.get("avail_kb") or 0) * 1024),
+                        human_size(mem["total_kb"] * 1024)))
+    for fs in sorted(sh.get("filesystems") or [],
+                     key=lambda f: -(f.get("percent") or 0))[:2]:
+        lines.append("%s %d%% full (%s free)"
+                     % (fs.get("mount", "?"), fs.get("percent") or 0,
+                        human_size(fs.get("avail_b")) or "?"))
+    io = sh.get("io") or {}
+    if io.get("busiest"):
+        lines.append("busiest disk %s at %.0f%% busy (iowait %.0f%%)"
+                     % (io["busiest"]["device"], io["busiest"]["util"], io.get("iowait") or 0))
+    if isinstance(sh.get("uptime_s"), int):
+        lines.append("up %s" % _sys_uptime(sh["uptime_s"]))
+    if sh.get("reboot_required"):
+        lines.append("a reboot is pending to finish updates")
+    for p in sh.get("problems") or []:
+        lines.append("%s %s" % ("!" if p.get("severity") == "mismatch" else "-",
+                                p.get("detail", "")))
+    return lines
+
 
 def device_facts(node: Dict[str, Any],
                  plan: Optional[Dict[str, Any]] = None,
@@ -1556,6 +1599,11 @@ def device_facts(node: Dict[str, Any],
         ph_lines = _port_health_lines(ph)
         if ph_lines:
             sections.append({"title": "Port health", "lines": ph_lines})
+    sysh = extra.get("system_health")
+    if isinstance(sysh, dict) and sysh:
+        sysh_lines = _system_health_lines(sysh)
+        if sysh_lines:
+            sections.append({"title": "System health", "lines": sysh_lines})
     opt = extra.get("optics")
     if isinstance(opt, dict) and opt:
         from .optics import problems as _optic_problems
@@ -1652,7 +1700,8 @@ def device_facts(node: Dict[str, Any],
     for key, value in sorted(extra.items()):
         if key in ("ptp", "sensors", "optics", "bonds", "bond_detail",
                    "netns_hidden", "identified", "netns_vfs", "ports", "netns",
-                   "ipmi", "perm_macs", "health", "usb", "storage", "port_health"):
+                   "ipmi", "perm_macs", "health", "usb", "storage", "port_health",
+                   "system_health"):
             continue
         if isinstance(value, dict) and value:
             held.append("%s (%d)" % (SKIP_ON_PANEL.get(key, key), len(value)))

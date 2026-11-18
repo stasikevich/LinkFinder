@@ -1471,6 +1471,14 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
     if _ph:
         result.extra["port_health"] = _ph
 
+    # System health - load, memory, filesystems, clock, failed units. All
+    # world-readable (/proc, df, systemctl, timedatectl) so no sudo; iostat is
+    # asked only when installed and its absence just leaves iowait unread.
+    from .syshealth import collect as collect_syshealth
+    _sh = collect_syshealth(lambda cmd: ssh.run(cmd, timeout=40)[1], say)
+    if _sh:
+        result.extra["system_health"] = _sh
+
     def _hw_run(cmd: str) -> str:
         # The DMI serials (product/chassis/board) are root-only (-r--------) on
         # many boards, and with no serial NetBox has nothing to match the box
