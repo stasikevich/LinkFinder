@@ -1525,6 +1525,21 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
     if ptp:
         _probe_ptp(ssh, result, ifaces, chosen, missing(), say)
 
+    # A VM behind a hypervisor bridge hears its own LLDP frame reflected and
+    # takes it for a neighbour - a device cabled to itself. Drop a neighbour
+    # whose chassis id is a MAC this host already owns: that is an echo, not a
+    # link.
+    from .ptp import normalise_mac as _nmac
+    own_macs = {_nmac(m) for m in (result.extra.get("macs") or {}).values() if m}
+    own_macs |= {_nmac(m) for m in (result.extra.get("perm_macs") or {}).values() if m}
+    own_macs.discard("")
+    if own_macs:
+        kept = [nb for nb in result.neighbors
+                if _nmac(getattr(nb, "chassis_id", "") or "") not in own_macs]
+        if len(kept) != len(result.neighbors):
+            say("  dropped %d self-echo neighbour(s) - this host hearing its own "
+                "frame reflected by a bridge" % (len(result.neighbors) - len(kept)))
+        result.neighbors = kept
     result.neighbors = prefer_lldp(result.neighbors)
     still = missing()
 

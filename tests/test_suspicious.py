@@ -34,11 +34,13 @@ def node(i, kind="switch"):
             "depth": 0, "sources": [], "serial": "", "error": ""}
 
 
-def edge(a, ai, b, bi, problems=None):
+def edge(a, ai, b, bi, problems=None, attrs=None):
+    # problems is a list of layer NAMES, exactly as Edge.to_dict writes it;
+    # the detail for each lives in attrs[name]. This is the real shape.
     return {"id": "%s|%s::%s|%s" % (a, ai, b, bi), "a": a, "a_iface": ai,
             "b": b, "b_iface": bi, "protos": ["LLDP"], "sources": ["x"],
             "confidence": "confirmed", "problems": problems or [],
-            "attrs": {}, "vlan": "", "speed": "", "reported_by": []}
+            "attrs": attrs or {}, "vlan": "", "speed": "", "reported_by": []}
 
 
 CLEAN = {"schema_version": 1, "nodes": [node("sw1"), node("h", "host")],
@@ -49,9 +51,9 @@ BROKEN = {"schema_version": 1,
           "edges": [edge("sw1", "1/1/1", "sw2", "1/1/1"),
                     edge("sw2", "1/1/2", "sw3", "1/1/2"),
                     edge("sw3", "1/1/3", "sw1", "1/1/3"),
-                    edge("sw1", "1/1/9", "h", "eth0",
-                         [{"verdict": "MISMATCH", "what": "mtu",
-                           "detail": "9000 here, 1500 there"}])]}
+                    edge("sw1", "1/1/9", "h", "eth0", ["mtu"],
+                         {"mtu": {"verdict": "MISMATCH", "what": "mtu",
+                                  "detail": "9000 here, 1500 there"}})]}
 
 print("-- a map with nothing wrong says so --")
 check("nothing is found", suspicious.gather(topology=CLEAN), [])

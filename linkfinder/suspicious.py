@@ -100,11 +100,15 @@ def from_map(topology: Dict[str, Any]) -> List[Dict[str, Any]]:
                     "confidence": one.get("confidence", ""),
                     "macs": []})
     for edge in topology.get("edges") or []:
-        problems = edge.get("problems") or []
-        if not problems:
+        # edge["problems"] is a list of layer NAMES; the detail for each lives
+        # in edge["attrs"][name]. Reading the names as dicts was a crash.
+        names = edge.get("problems") or []
+        if not names:
             continue
-        said = [p for p in problems
-                if str((p or {}).get("verdict", "")).lower() != "match"]
+        attrs = edge.get("attrs") or {}
+        said = [attrs[n] for n in names
+                if isinstance(attrs.get(n), dict)
+                and str(attrs[n].get("verdict", "")).lower() != "match"]
         if not said:
             continue
         out.append({

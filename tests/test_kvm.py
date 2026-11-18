@@ -95,6 +95,21 @@ def test_connect_v4_only_no_fe80():
     check("no fe80 forced on as an address", vm.mgmt_ips, [])
 
 
+def test_connect_skips_an_already_scanned_guest():
+    t = Topology(seed="10.0.0.1")
+    t.add_node(mgmt_ip="10.0.0.1", state="scanned", kind="host")
+    # the guest was ALSO scanned as its own target - it owns its own macs
+    g = t.add_node(mgmt_ip="10.0.0.9", chassis_id="52:54:00:9a:88:8b",
+                   state="scanned", kind="host", name="guest-host")
+    g.extra["macs"] = {"enp1s0": "52:54:00:9a:88:8b", "enp9s0": "52:54:00:48:6e:ad"}
+    domains = [{"name": "the-guest", "interfaces": [
+        {"iface": "vnet1", "type": "bridge", "source": "br0",
+         "mac": "52:54:00:48:6e:ad", "address": "172.50.0.254"}]}]
+    kvm.connect(t, [("ip:10.0.0.1", View({"kvm_domains": domains}))])
+    check("no second node for a guest already on the map",
+          [n.name for n in t.nodes.values() if n.kind == "vm"], [])
+
+
 for fn in list(globals().values()):
     if callable(fn) and getattr(fn, "__name__", "").startswith("test_"):
         fn()

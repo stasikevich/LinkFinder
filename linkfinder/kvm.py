@@ -102,6 +102,17 @@ def connect(topology, views: Optional[List] = None,
     libvirt name is the identity that matters.
     """
     say = log or (lambda _m: None)
+    # Every hardware address an already-drawn node owns, so a guest that was
+    # also scanned directly (as its own target) is not drawn a second time.
+    owned = set()
+    for n in topology.nodes.values():
+        chassis = str(getattr(n, "chassis_id", "") or "").lower()
+        if chassis:
+            owned.add(chassis)
+        for src in ("macs", "perm_macs"):
+            for m in ((getattr(n, "extra", {}) or {}).get(src) or {}).values():
+                if m:
+                    owned.add(str(m).lower())
     made = 0
     for _node_id, view in (views or []):
         extra = getattr(view, "extra", {}) or {}
@@ -110,6 +121,8 @@ def connect(topology, views: Optional[List] = None,
             ifaces = guest.get("interfaces") or []
             if not ifaces:
                 continue
+            if any(str(i.get("mac") or "").lower() in owned for i in ifaces):
+                continue      # already on the map under its own scan
             # the bridge interface is the guest's routable leg (and carries its
             # v4); the macvtap/direct one is management. Key on the bridge.
             ordered = sorted(ifaces,
@@ -124,6 +137,9 @@ def connect(topology, views: Optional[List] = None,
                 continue
             topology.add_node(chassis_id=mac, kind="vm", name=name,
                               state="unscanned", source="libvirt", mgmt_ip=v4)
+            for i in ifaces:
+                if i.get("mac"):
+                    owned.add(str(i["mac"]).lower())
             made += 1
     if made:
         say("  %d KVM guest(s) named from libvirt" % made)

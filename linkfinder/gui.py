@@ -532,7 +532,7 @@ class App:
             signature() + chr(10) * 2
             + "Reads switches, servers, BMCs and handsets to answer which "
               "port every link is in." + chr(10) * 2
-            + "It only reads. Nothing is written to NetBox, ever."
+            + "It only reads; it never writes anything."
             + chr(10) * 2 + __copyright__)
 
     def _build_topbar(self) -> None:

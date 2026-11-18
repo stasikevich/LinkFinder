@@ -363,6 +363,38 @@ check("nothing nameless-and-link-local is left",
        and n.kind in ("host", "unknown", "")
        and not [a for a in n.mgmt_ips if not a.startswith("fe80")]], [])
 
+print()
+print("-- a routable but locally-administered nobody node is a gateway, dropped --")
+t = Topology(seed="g")
+t.add_node(mgmt_ip="10.0.0.1", kind="host", name="srv", state=STATE_SCANNED)
+t.add_node(mgmt_ip="172.50.0.1", chassis_id="d2:9f:c7:00:00:01", kind="unknown",
+           state=STATE_UNSCANNED)                       # local-admin, no maker -> drop
+t.add_node(mgmt_ip="172.50.0.9", chassis_id="00:11:22:00:00:09", kind="host",
+           state=STATE_UNSCANNED, vendor="Acme Corp")   # real maker, routable -> keep
+n = t.drop_nameless_linklocal()
+check("the locally-administered gateway is dropped", n, 1)
+check("172.50.0.1 is gone",
+      any("172.50.0.1" in (x.mgmt_ips or []) for x in t.nodes.values()), False)
+check("a real-maker host with a routable IP is kept",
+      any("172.50.0.9" in (x.mgmt_ips or []) for x in t.nodes.values()), True)
+
+print()
+print("-- a nameless link-local VM is noise; a named or routable VM is kept --")
+t = Topology(seed="v")
+t.add_node(mgmt_ip="10.0.0.1", kind="host", name="srv", state=STATE_SCANNED)
+t.add_node(mgmt_ip="fe80::5054:ff:fe7a:80d1", chassis_id="52:54:00:7a:80:d1",
+           kind="vm", state=STATE_UNSCANNED)                  # bare fe80 vm -> drop
+t.add_node(mgmt_ip="fe80::5054:ff:fe00:0002", chassis_id="52:54:00:00:00:02",
+           kind="vm", name="iperf-4G", state=STATE_UNSCANNED) # named -> keep
+t.add_node(mgmt_ip="172.50.0.254", chassis_id="52:54:00:00:00:03",
+           kind="vm", state=STATE_UNSCANNED)                  # routable -> keep
+n = t.drop_nameless_linklocal()
+check("the bare link-local vm is dropped", n, 1)
+check("a named vm survives",
+      any(x.kind == "vm" and x.name == "iperf-4G" for x in t.nodes.values()), True)
+check("a vm with a routable IP survives",
+      any("172.50.0.254" in (x.mgmt_ips or []) for x in t.nodes.values()), True)
+
 
 print()
 if FAILURES:

@@ -260,6 +260,18 @@ def edge_key(a: str, a_iface: str, b: str, b_iface: str) -> str:
     return "%s|%s::%s|%s" % (ends[0][0], ends[0][1], ends[1][0], ends[1][1])
 
 
+def _locally_administered(mac: str) -> bool:
+    """A MAC whose second-least-significant bit of the first octet is set was
+    assigned locally - a VIP, a bridge or a tap, not a vendor's burned-in id."""
+    parts = str(mac or "").split(":")
+    if len(parts) != 6:
+        return False
+    try:
+        return bool(int(parts[0], 16) & 0x02)
+    except ValueError:
+        return False
+
+
 class Topology:
     def __init__(self, seed: str = ""):
         self.seed = seed
@@ -552,7 +564,7 @@ class Topology:
         nothing more; drawn, it is a question mark the map cannot answer and
         nobody asked. Anything that carries an identity is kept.
         """
-        generic = ("host", "unknown", "")
+        generic = ("host", "unknown", "vm", "")
         doomed = []
         for node in self.nodes.values():
             if node.state != STATE_UNSCANNED or (node.name or "").strip():
@@ -562,7 +574,14 @@ class Topology:
             routable = [a for a in (node.mgmt_ips or [])
                         if a and not a.lower().startswith("fe80")]
             if routable:
-                continue
+                # a routable address usually means a real device - unless we
+                # could not even classify it (kind "unknown"), its MAC was
+                # assigned locally and no vendor is known: that is a gateway/VIP
+                # the segment points at, not a box on the end of a cable.
+                if not (str(node.kind or "") == "unknown"
+                        and _locally_administered(getattr(node, "chassis_id", ""))
+                        and not (getattr(node, "vendor", "") or "").strip()):
+                    continue
             doomed.append(node.id)
         dead = set(doomed)
         for nid in dead:
