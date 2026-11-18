@@ -217,7 +217,6 @@ class Ssh:
             chan.get_pty()
             chan.settimeout(1.0)
             chan.exec_command(wrapped)
-            chan.sendall(self.creds.become_password + "\n")
             buf = bytearray()
             # Stop at the fence, not at channel EOF. The pty keeps the session
             # open after `su -c` exits, so waiting for the channel to close spent
@@ -225,6 +224,7 @@ class Ssh:
             # BBU scan. The end marker and the command's exit code after it are
             # the last thing printed, so read until those have arrived.
             fence = re.compile(re.escape(end) + r"\s*\d+")
+            sent = False
             deadline = time.time() + timeout
             while time.time() < deadline:
                 try:
@@ -236,7 +236,15 @@ class Ssh:
                 if not chunk:
                     break
                 buf.extend(chunk)
-                if fence.search(buf.decode("utf-8", "replace")):
+                seen = buf.decode("utf-8", "replace")
+                # su reads the password from the tty only after it has printed
+                # its prompt; sending before that - as this once did - loses it
+                # on a host where su is slow to start, and su then rejects the
+                # empty attempt. Wait for the prompt, then answer it once.
+                if not sent and "assword" in seen:
+                    chan.sendall(self.creds.become_password + "\n")
+                    sent = True
+                if fence.search(seen):
                     break
             text = buf.decode("utf-8", "replace").replace("\r", "")
         except (paramiko.SSHException, socket.timeout, socket.error, AttributeError) as exc:
