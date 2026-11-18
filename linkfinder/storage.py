@@ -109,6 +109,8 @@ def _disk_from_row(name, dtype, size, rota, tran, model, serial, vendor):
     name = (name or "").strip()
     if not name or (dtype or "").strip().lower() != "disk":
         return None            # rom, loop, part, lvm, md are not bare disks
+    if name.startswith(("zram", "ram")):
+        return None            # a RAM disk / compressed swap is not a drive
     try:
         size_bytes = int(str(size).strip() or 0)
     except ValueError:
@@ -413,6 +415,17 @@ def collect(run: Run, log: Optional[Callable[[str], None]] = None) -> Dict[str, 
     if present:
         raid["cli_present"] = present
 
+    # SMART per disk - smartctl opens the device, so it runs only with the
+    # privileged run; absent smartctl just leaves health unread.
+    if disks and (run("command -v smartctl 2>/dev/null") or "").strip():
+        for d in disks:
+            h = parse_smart(run(SMART_CMD % ("/dev/" + d["name"])))
+            if h:
+                d["health"] = h
+        hp = health_problems(disks)
+        if hp:
+            result["health_problems"] = hp
+
     if raid:
         result["raid"] = raid
     if disks:
@@ -426,3 +439,103 @@ def collect(run: Run, log: Optional[Callable[[str], None]] = None) -> Dict[str, 
             extra = "; RAID controller, no CLI"
         say("  storage: %d disk(s) (%s)%s" % (len(disks), kinds, extra))
     return result
+
+
+# SMART health. smartctl reads it straight from the drive; it needs root to
+# open the device, so the collector asks for it only when a sudo-capable run is
+# given. Two output shapes: NVMe prints key: value, a SATA/SAS disk prints the
+# attribute table whose last column is the raw value.
+SMART_CMD = "smartctl -H -A %s 2>/dev/null"
+_SMART_KV = {
+    "critical_warning": r"Critical Warning:\s*(\S+)",
+    "percentage_used": r"Percentage Used:\s*(\d+)",
+    "available_spare": r"Available Spare:\s*(\d+)",
+    "available_spare_threshold": r"Available Spare Threshold:\s*(\d+)",
+    "media_errors": r"Media and Data Integrity Errors:\s*([\d,]+)",
+    "temperature_c": r"Temperature:\s*(\d+)\s*Celsius",
+    "power_on_hours": r"Power On Hours:\s*([\d,]+)",
+}
+# SATA attribute name -> our key; the raw value is the last integer on the line.
+_SMART_ATTR = {
+    "Reallocated_Sector_Ct": "reallocated",
+    "Current_Pending_Sector": "pending",
+    "Offline_Uncorrectable": "offline_uncorrectable",
+    "Temperature_Celsius": "temperature_c",
+    "Power_On_Hours": "power_on_hours",
+}
+# SSD wear shows as a normalised value counting DOWN from 100; the used percent
+# is 100 minus it. Percent_Lifetime_Remain and Percentage Used count up.
+_SMART_WEAR_DOWN = ("Wear_Leveling_Count", "Media_Wearout_Indicator",
+                    "SSD_Life_Left")
+
+
+def _num(value: Any) -> Optional[int]:
+    try:
+        return int(str(value).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_smart(text: str) -> Dict[str, Any]:
+    """One health record from `smartctl -H -A`, NVMe or SATA/SAS."""
+    out: Dict[str, Any] = {}
+    s = text or ""
+    m = re.search(r"SMART overall-health[^:]*:\s*(\w+)", s)
+    if m:
+        out["passed"] = m.group(1).upper() == "PASSED"
+    for key, pat in _SMART_KV.items():
+        m = re.search(pat, s)
+        if m:
+            v = m.group(1)
+            if key == "critical_warning":
+                out[key] = v
+            else:
+                n = _num(v)
+                if n is not None:
+                    out[key] = n
+    for name, key in _SMART_ATTR.items():
+        # RAW_VALUE is the first integer after the WHEN_FAILED "-" column; anchor
+        # there so a trailing "(Min/Max 18/32)" on a temperature line is ignored.
+        m = re.search(r"^\s*\d+\s+%s\b.*?\s-\s+(\d+)" % name, s, re.M)
+        if m and key not in out:
+            out[key] = _num(m.group(1))
+    for name in _SMART_WEAR_DOWN:
+        m = re.search(r"^\s*\d+\s+%s\b\s+\S+\s+(\d+)\s" % name, s, re.M)
+        if m and "percentage_used" not in out:
+            left = _num(m.group(1))
+            if left is not None and 0 <= left <= 100:
+                out["percentage_used"] = 100 - left
+            break
+    return out
+
+
+def health_problems(disks: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    """Drives that are failing or wearing out, worst first."""
+    found: List[Dict[str, str]] = []
+    for d in disks:
+        h = d.get("health") or {}
+        name = d.get("name", "")
+        if h.get("passed") is False or str(h.get("critical_warning") or "0x00") not in ("0", "0x00", "0x0"):
+            found.append({"disk": name, "severity": "mismatch",
+                          "detail": "%s SMART reports the drive is FAILING" % name})
+        spare, thr = h.get("available_spare"), h.get("available_spare_threshold")
+        if isinstance(spare, int) and isinstance(thr, int) and spare < thr:
+            found.append({"disk": name, "severity": "mismatch",
+                          "detail": "%s spare blocks %d%% below the %d%% threshold"
+                          % (name, spare, thr)})
+        for key, label in (("reallocated", "reallocated"),
+                           ("pending", "pending"),
+                           ("offline_uncorrectable", "offline-uncorrectable")):
+            n = h.get(key)
+            if isinstance(n, int) and n > 0:
+                found.append({"disk": name, "severity": "warn",
+                              "detail": "%s has %d %s sector(s)" % (name, n, label)})
+        me = h.get("media_errors")
+        if isinstance(me, int) and me > 0:
+            found.append({"disk": name, "severity": "warn",
+                          "detail": "%s reports %d media error(s)" % (name, me)})
+        used = h.get("percentage_used")
+        if isinstance(used, int) and used >= 90:
+            found.append({"disk": name, "severity": "warn",
+                          "detail": "%s is %d%% worn" % (name, used)})
+    return found

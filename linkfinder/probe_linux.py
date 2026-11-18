@@ -1458,7 +1458,8 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
     def _storage_run(cmd: str) -> str:
         # lsblk, /proc/mdstat and sysfs are world-readable; only lspci and a
         # RAID controller's own CLI want root, so those are what pays for sudo.
-        hot = ("lspci", "ssacli", "hpssacli", "storcli", "perccli", "MegaCli")
+        hot = ("lspci", "ssacli", "hpssacli", "storcli", "perccli", "MegaCli",
+               "smartctl")
         chan = ssh.sudo if any(t in cmd for t in hot) else ssh.run
         return chan(cmd, timeout=40)[1]
     _storage = collect_storage(_storage_run, say)

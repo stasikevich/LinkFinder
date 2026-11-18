@@ -1485,6 +1485,24 @@ def _storage_lines(store: Dict[str, Any]) -> List[str]:
                      or raid.get("hardware") or raid.get("note"))
     if store.get("disks") and not said_raid:
         lines.append("RAID not configured")
+    for d in store.get("disks") or []:
+        h = d.get("health") or {}
+        bits = []
+        if h.get("passed") is True:
+            bits.append("SMART OK")
+        elif h.get("passed") is False:
+            bits.append("SMART FAILING")
+        if isinstance(h.get("percentage_used"), int):
+            bits.append("%d%% worn" % h["percentage_used"])
+        if isinstance(h.get("temperature_c"), int):
+            bits.append("%d C" % h["temperature_c"])
+        if isinstance(h.get("power_on_hours"), int):
+            bits.append("%d h on" % h["power_on_hours"])
+        if bits:
+            lines.append("%s: %s" % (d.get("name", ""), ", ".join(bits)))
+    for p in store.get("health_problems") or []:
+        lines.append("%s %s" % ("!" if p.get("severity") == "mismatch" else "-",
+                                p.get("detail", "")))
     iscsi = store.get("iscsi") or []
     if iscsi:
         lines.append("%d iSCSI disk(s) attached" % len(iscsi))

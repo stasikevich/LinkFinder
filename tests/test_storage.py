@@ -155,6 +155,60 @@ def test_find_cli_off_path():
     check("found off-PATH cli", cli, "/opt/smartstorageadmin/ssacli/bin/ssacli")
 
 
+NVME_SMART = """SMART overall-health self-assessment test result: PASSED
+Critical Warning:                   0x00
+Temperature:                        37 Celsius
+Available Spare:                    100%
+Available Spare Threshold:          10%
+Percentage Used:                    45%
+Power On Hours:                     962
+Media and Data Integrity Errors:    1"""
+
+SATA_SMART = """SMART overall-health self-assessment test result: PASSED
+  5 Reallocated_Sector_Ct   0x0033   100   100   010    Pre-fail  Always       -       8
+197 Current_Pending_Sector  0x0012   100   100   000    Old_age   Always       -       0
+177 Wear_Leveling_Count     0x0013   095   095   000    Pre-fail  Always       -       120
+194 Temperature_Celsius     0x0022   035   045   000    Old_age   Always       -       35
+  9 Power_On_Hours          0x0032   100   100   000    Old_age   Always       -       14523"""
+
+FAILING = """SMART overall-health self-assessment test result: FAILED!
+Critical Warning:                   0x04
+Percentage Used:                    96%
+Available Spare:                    4%
+Available Spare Threshold:          10%"""
+
+
+def test_smart_nvme():
+    h = storage.parse_smart(NVME_SMART)
+    check("nvme passed", h["passed"], True)
+    check("nvme wear", h["percentage_used"], 45)
+    check("nvme media errors", h["media_errors"], 1)
+    check("nvme spare", h["available_spare"], 100)
+
+
+def test_smart_sata():
+    h = storage.parse_smart(SATA_SMART)
+    check("sata reallocated", h["reallocated"], 8)
+    check("sata wear from leveling", h["percentage_used"], 5)
+    check("sata temp", h["temperature_c"], 35)
+
+
+def test_smart_problems():
+    pr = storage.health_problems([
+        {"name": "nvme0n1", "health": storage.parse_smart(NVME_SMART)},
+        {"name": "sda", "health": storage.parse_smart(SATA_SMART)},
+        {"name": "bad", "health": storage.parse_smart(FAILING)}])
+    worst = {}
+    for p in pr:
+        if p["disk"] not in worst or p["severity"] == "mismatch":
+            worst[p["disk"]] = p["severity"]
+    details = " | ".join(p["detail"] for p in pr)
+    check("failing drive has a mismatch", worst.get("bad"), "mismatch")
+    check("nvme media error flagged", "media error" in details, True)
+    check("sata reallocated flagged", "reallocated" in details, True)
+    check("healthy-but-aging nvme is only a warn", worst.get("nvme0n1"), "warn")
+
+
 for fn in list(globals().values()):
     if callable(fn) and getattr(fn, "__name__", "").startswith("test_"):
         fn()
