@@ -41,13 +41,14 @@ from typing import Any, Callable, List, Optional, Tuple
 # three builders were simply left out of the binary. The map came out of
 # the tool missing every ARP link and every PTP link, and said so only in
 # a log nobody had open. An import statement is the thing that is seen.
-from . import arplinks, consistency, ipmi, lag, neighbor6, ptp_links, seriallinks, vmlinks
+from . import arplinks, consistency, ipmi, kvm, lag, neighbor6, ptp_links, seriallinks, vmlinks
 
 # (what to call it in a message, the step, whether it needs the probe output)
 RUNGS: Tuple[Tuple[str, Any, bool], ...] = (
     # A tap carrying a guest's own hardware address is not evidence about
     # a cable - it is the cable. Nothing weaker can contradict it, so it
     # goes first.
+    ("libvirt guest naming", kvm.connect, True),
     ("virtual machine search", vmlinks.connect, False),
     ("ptp link search", ptp_links.connect, True),
     ("ptp clock roots", ptp_links.add_clock_roots, False),
@@ -86,6 +87,13 @@ def walk(topology, views: List[Tuple[str, Any]],
         topology.fill_neighbour_ips()
     except Exception as problem:
         say("  neighbour-ip fill skipped: %s" % problem)
+    try:
+        dropped = topology.drop_nameless_linklocal()
+        if dropped:
+            say("  dropped %d unidentified link-local neighbour(s) - a bare MAC, "
+                "no name or routable address, nothing to scan" % dropped)
+    except Exception as problem:
+        say("  link-local prune skipped: %s" % problem)
     try:
         from .consistency import subnets
         subnets(topology, log=say)

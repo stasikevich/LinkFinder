@@ -304,6 +304,67 @@ check("two addressed devices of one name stay two", len(t.nodes), 2)
 
 
 print()
+print("-- a portless neighbour edge folds into the cable that names the ports --")
+t = Topology()
+t.add_edge("radio", "eth1", "host", "ens1f2", proto="LLDP", reported_by="host")
+t.add_edge("radio", "?", "host", "?", proto="ND", reported_by="host")
+check("two edges before collapse", len(t.edges), 2)
+t.collapse_half_specified_edges()
+check("the portless ND edge folds away", len(t.edges), 1)
+kept = list(t.edges.values())[0]
+check("the named ports survive", {kept.a_iface, kept.b_iface}, {"eth1", "ens1f2"})
+check("ND evidence folded in", sorted(kept.protos), ["LLDP", "ND"])
+
+# one side named still folds into the cable on the same port
+t = Topology()
+t.add_edge("radio", "eth1", "host", "ens1f1", proto="LLDP", reported_by="host")
+t.add_edge("radio", "?", "host", "ens1f1", proto="ND", reported_by="host")
+t.collapse_half_specified_edges()
+check("half-named ND on the same port folds too", len(t.edges), 1)
+
+# a lone portless edge with nothing richer stays - it is the only evidence
+t = Topology()
+t.add_edge("radio", "?", "host", "?", proto="ND", reported_by="host")
+t.collapse_half_specified_edges()
+check("a lone portless edge is kept", len(t.edges), 1)
+
+# a portless edge to a DIFFERENT device is not touched by another cable
+t = Topology()
+t.add_edge("radio", "eth1", "host", "ens1f2", proto="LLDP", reported_by="host")
+t.add_edge("radio", "?", "other", "?", proto="ND", reported_by="radio")
+t.collapse_half_specified_edges()
+check("a portless edge to a third device stays", len(t.edges), 2)
+
+
+print()
+print("-- a nameless link-local neighbour we could not identify is dropped --")
+t = Topology(seed="x")
+host = t.add_node(mgmt_ip="10.0.0.1", kind="host", name="srv", state=STATE_SCANNED)
+bare = t.add_node(mgmt_ip="fe80::1", chassis_id="02:00:00:00:00:01", kind="host",
+                  state=STATE_UNSCANNED)                       # bare MAC -> drop
+t.add_edge(host.id, "iperf2", bare.id, "?", proto="ARP", reported_by=host.id)
+t.add_node(chassis_id="aa:bb:cc:00:00:02", kind="switch", name="sw1",
+           state=STATE_UNSCANNED)                              # named switch -> keep
+t.add_node(mgmt_ip="fe80::3", chassis_id="2c:a5:39:00:00:03", kind="radio",
+           state=STATE_UNSCANNED)                              # radio kind -> keep
+t.add_node(mgmt_ip="10.0.0.4", chassis_id="aa:bb:cc:00:00:04", kind="host",
+           state=STATE_UNSCANNED)                              # routable -> keep
+t.add_node(mgmt_ip="fe80::5", chassis_id="52:54:00:00:00:05", kind="vm",
+           name="iperf-4G", state=STATE_UNSCANNED)            # named vm -> keep
+edges_before = len(t.edges)
+dropped = t.drop_nameless_linklocal()
+check("exactly the bare neighbour is dropped", dropped, 1)
+check("its dangling edge goes with it", len(t.edges), edges_before - 1)
+check("the scanned host, switch, radio, routable host and vm all remain",
+      len(t.nodes), 5)
+check("nothing nameless-and-link-local is left",
+      [n.id for n in t.nodes.values()
+       if n.state == STATE_UNSCANNED and not (n.name or "").strip()
+       and n.kind in ("host", "unknown", "")
+       and not [a for a in n.mgmt_ips if not a.startswith("fe80")]], [])
+
+
+print()
 if FAILURES:
     print("%d FAILURES" % len(FAILURES))
     for f in FAILURES:

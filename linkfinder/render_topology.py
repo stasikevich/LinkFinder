@@ -1509,6 +1509,16 @@ def _storage_lines(store: Dict[str, Any]) -> List[str]:
     return lines
 
 
+def _kvm_guest_lines(guests: List[Dict[str, Any]]) -> List[str]:
+    """This host's own KVM guests, which live on its bridges, not on a cable."""
+    out = []
+    for g in guests:
+        addr = g.get("address") or g.get("mac") or "?"
+        bridge = g.get("bridge")
+        out.append("%s%s" % (addr, " on bridge %s" % bridge if bridge else ""))
+    return out
+
+
 def _port_health_lines(health: Dict[str, Any]) -> List[str]:
     """The sick-but-up ports: CRC, a duplex mismatch, a flap - the fault a
     cable drawn green would hide. One line each, worst first."""
@@ -1604,6 +1614,10 @@ def device_facts(node: Dict[str, Any],
         sysh_lines = _system_health_lines(sysh)
         if sysh_lines:
             sections.append({"title": "System health", "lines": sysh_lines})
+    guests = extra.get("kvm_guests")
+    if isinstance(guests, list) and guests:
+        sections.append({"title": "KVM guests on this host",
+                         "lines": _kvm_guest_lines(guests)})
     opt = extra.get("optics")
     if isinstance(opt, dict) and opt:
         from .optics import problems as _optic_problems
@@ -1701,7 +1715,7 @@ def device_facts(node: Dict[str, Any],
         if key in ("ptp", "sensors", "optics", "bonds", "bond_detail",
                    "netns_hidden", "identified", "netns_vfs", "ports", "netns",
                    "ipmi", "perm_macs", "health", "usb", "storage", "port_health",
-                   "system_health"):
+                   "system_health", "kvm_guests"):
             continue
         if isinstance(value, dict) and value:
             held.append("%s (%d)" % (SKIP_ON_PANEL.get(key, key), len(value)))

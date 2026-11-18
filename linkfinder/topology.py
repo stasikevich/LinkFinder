@@ -518,19 +518,21 @@ class Topology:
                 continue
             ends = [(weak.a, weak.a_iface), (weak.b, weak.b_iface)]
             vague = [e for e in ends if (e[1] or "?") == "?"]
-            if len(vague) != 1:
-                continue
-            u_node = vague[0][0]
-            a_node, a_iface = [e for e in ends if (e[1] or "?") != "?"][0]
+            if not vague:
+                continue            # names both ports - nothing to fold away
+            named = [e for e in ends if (e[1] or "?") != "?"]
             for other in list(self.edges.values()):
                 if other is weak or other.id not in self.edges:
                     continue
                 if {other.a, other.b} != {weak.a, weak.b}:
                     continue
                 by_node = {other.a: other.a_iface, other.b: other.b_iface}
-                if by_node.get(a_node, "?") != a_iface:
+                # every port the weak edge DID name must match the richer one,
+                if any(by_node.get(node, "?") != iface for node, iface in named):
                     continue
-                if (by_node.get(u_node, "?") or "?") == "?":
+                # and the richer one must name a port the weak edge left "?",
+                # so two equally-vague edges are never silently merged.
+                if not any((by_node.get(node) or "?") != "?" for node, _ in vague):
                     continue
                 other.protos = _union(other.protos, weak.protos)
                 other.sources = _union(other.sources, weak.sources)
@@ -541,6 +543,35 @@ class Topology:
                 removed += 1
                 break
         return removed
+
+    def drop_nameless_linklocal(self) -> int:
+        """Remove a neighbour we could not identify at all.
+
+        Never scanned, no name, no routable address - only a link-local one, or
+        none - and not a switch, radio or VM. That is a MAC on a segment and
+        nothing more; drawn, it is a question mark the map cannot answer and
+        nobody asked. Anything that carries an identity is kept.
+        """
+        generic = ("host", "unknown", "")
+        doomed = []
+        for node in self.nodes.values():
+            if node.state != STATE_UNSCANNED or (node.name or "").strip():
+                continue
+            if str(node.kind or "") not in generic:
+                continue
+            routable = [a for a in (node.mgmt_ips or [])
+                        if a and not a.lower().startswith("fe80")]
+            if routable:
+                continue
+            doomed.append(node.id)
+        dead = set(doomed)
+        for nid in dead:
+            self.nodes.pop(nid, None)
+        if dead:
+            for eid in [e.id for e in self.edges.values()
+                        if e.a in dead or e.b in dead]:
+                self.edges.pop(eid, None)
+        return len(dead)
 
     def fold_known_macs(self) -> int:
         """A neighbour MAC that a scanned device already owns is that device.

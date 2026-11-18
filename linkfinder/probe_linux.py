@@ -1479,6 +1479,14 @@ def probe_linux(ssh: Ssh, result: TargetResult, target_ip: str,
     if _sh:
         result.extra["system_health"] = _sh
 
+    # Running KVM guests, named by libvirt (virsh needs root for its socket).
+    # A host without virsh yields nothing; the guests then fall back to the
+    # neighbour-cache listing.
+    from .kvm import collect as collect_kvm
+    _kvm = collect_kvm(lambda cmd: ssh.sudo(cmd, timeout=25)[1], say)
+    if _kvm:
+        result.extra["kvm_domains"] = _kvm
+
     def _hw_run(cmd: str) -> str:
         # The DMI serials (product/chassis/board) are root-only (-r--------) on
         # many boards, and with no serial NetBox has nothing to match the box

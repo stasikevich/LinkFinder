@@ -119,6 +119,49 @@ def already_answered(topology, node_id: str, extra: Dict[str, Any]) -> set:
     return taken
 
 
+# libvirt gives a guest's tap device (vnet*/macvtap*) a MAC that shares the
+# guest MAC's lower five bytes, so a neighbour matching one of this host's taps
+# is its OWN KVM guest reached over a bridge - not a device on a cable. It is
+# listed on the host, not drawn as a node.
+_TAP_IFACES = ("vnet", "macvtap", "tap")
+
+
+def _tap_suffixes(extra: Dict[str, Any]) -> set:
+    out = set()
+    for name, info in (extra.get("ports") or {}).items():
+        if str(name).startswith(_TAP_IFACES):
+            parts = str(info.get("mac", "")).lower().split(":")
+            if len(parts) == 6:
+                out.add(":".join(parts[1:]))
+    return out
+
+
+def _guest_suffix(mac: str) -> str:
+    parts = str(mac).lower().split(":")
+    return ":".join(parts[1:]) if len(parts) == 6 else ""
+
+
+def _split_local_guests(found: Dict[str, Dict[str, Any]], suffixes: set):
+    """Pull this host's own KVM guests out of the drawable ports.
+
+    Returns (ports_without_guests, [{mac, address, bridge}, ...]).
+    """
+    kept: Dict[str, Dict[str, Any]] = {}
+    guests: List[Dict[str, str]] = []
+    for port, data in found.items():
+        keep = []
+        for peer in data.get("peers") or []:
+            if _guest_suffix(peer.get("mac", "")) in suffixes:
+                guests.append({"mac": peer.get("mac", ""),
+                               "address": peer.get("address", ""),
+                               "bridge": port})
+            else:
+                keep.append(peer)
+        if keep:
+            kept[port] = {"peers": keep}
+    return kept, guests
+
+
 def connect(topology, views, log: Optional[Callable[[str], None]] = None) -> int:
     """Draw the cables the IPv4 neighbour cache can prove."""
     say = log or (lambda _m: None)
@@ -144,6 +187,26 @@ def connect(topology, views, log: Optional[Callable[[str], None]] = None) -> int
         settled = already_answered(topology, node_id, extra)
         found = {port: rows for port, rows in found.items()
                  if port not in settled}
+        # This host's own KVM guests are listed on it, not drawn as nodes.
+        guests: List[Dict[str, str]] = []
+        taps = _tap_suffixes(extra)
+        if taps:
+            found, guests = _split_local_guests(found, taps)
+        if guests:
+            owner = topology.nodes.get(node_id)
+            if owner is not None:
+                named = {normalise_mac(getattr(n, "chassis_id", "") or "")
+                         for n in topology.nodes.values()}
+                seen, rows = set(), []
+                for g in guests:
+                    if g["mac"] in seen or normalise_mac(g["mac"]) in named:
+                        continue      # already drawn as a libvirt-named node
+                    seen.add(g["mac"])
+                    rows.append(g)
+                if rows:
+                    owner.extra["kvm_guests"] = rows
+                    say("  %d KVM guest(s) on this host's bridges, listed not "
+                        "drawn" % len(rows))
         if found:
             ports[node_id] = found
             hints.update(addresses_for(found))

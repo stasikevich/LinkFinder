@@ -61,8 +61,10 @@ print("-- the strong evidence comes first --")
 order = [named(step) for _label, step, _views in ladder.RUNGS]
 place = {pair: n for n, pair in enumerate(order)}
 
-check("a tap carrying the guest's own address is believed first",
-      place[("vmlinks", "connect")], 0)
+check("the host's own libvirt naming of its guests is believed first",
+      place[("kvm", "connect")], 0)
+check("a tap carrying the guest's own address comes right after",
+      place[("vmlinks", "connect")], 1)
 check("ptp is believed before an IPv6 neighbour",
       place[("ptp_links", "connect")] < place[("neighbor6", "connect")], True)
 check("an IPv6 neighbour before an ARP entry",

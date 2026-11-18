@@ -123,6 +123,31 @@ check("and carrying the address to reach it on",
       born[0].mgmt_ips, ["172.60.0.254"])
 
 print()
+print("-- a host's own KVM guest is listed, not drawn --")
+# libvirt's tap (vnet0) carries the guest MAC's lower five bytes; a neighbour
+# that matches is this host's own guest and belongs on it, not on the map.
+topo = Topology(seed="10.0.0.1")
+topo.add_node(mgmt_ip="10.0.0.1", state="scanned", kind="host")
+host_extra = {
+    "macs": {"eno1": "aa:bb:cc:00:00:01"},
+    "ports": {"vnet0": {"mac": "fe:54:00:48:6e:ad", "role": "bridge-member"}},
+    "neighbours": arp([
+        ("172.50.0.254", "52:54:00:48:6e:ad", "iperf2", "STALE"),   # own guest
+        ("172.50.0.9", "aa:bb:cc:00:00:55", "iperf2", "REACHABLE"),  # real peer
+    ]),
+}
+arplinks.connect(topo, [("ip:10.0.0.1", View(host_extra))])
+host = topo.nodes["ip:10.0.0.1"]
+addrs = [ip for n in topo.nodes.values() for ip in (n.mgmt_ips or [])]
+check("the local KVM guest is not drawn as a node", "172.50.0.254" in addrs, False)
+check("the guest is listed on the host instead",
+      [g["address"] for g in host.extra.get("kvm_guests", [])], ["172.50.0.254"])
+check("the guest records which bridge it is on",
+      host.extra["kvm_guests"][0]["bridge"], "iperf2")
+check("a real neighbour on the same bridge is still drawn", "172.50.0.9" in addrs, True)
+
+
+print()
 if FAILURES:
     print("%d FAILURES" % len(FAILURES))
     for line in FAILURES:
