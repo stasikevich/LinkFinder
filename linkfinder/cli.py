@@ -472,8 +472,10 @@ def options_from_args(args: argparse.Namespace) -> Options:
                 password=pick(args.password, "password", "LINKFINDER_PASSWORD"),
                 key_file=pick(args.key, "key", "LINKFINDER_KEY"),
                 port=args.ssh_port,
-                sudo_password=pick(args.sudo_password, "sudo_password"),
-                become_password=pick(args.become_password, "become_password"))
+                sudo_password=pick(args.sudo_password, "sudo_password",
+                                   "SUDO_PASSWORD"),
+                become_password=pick(args.become_password, "become_password",
+                                     "BECOME_PASSWORD"))
     switch_creds = Creds(user=pick(args.switch_user, "switch_user"),
                          password=pick(args.switch_password, "switch_password"))
     extra_creds = []

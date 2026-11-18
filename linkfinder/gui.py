@@ -647,6 +647,12 @@ class App:
         field(creds, "BMC user", "bmc_user", 1, 0, default="bmc_user")
         field(creds, "BMC password", "bmc_password", 1, 2,
               default="bmc_password", show="\u2022")
+        # For a login that cannot sudo (a BBU console account, then `su -`),
+        # password goes here; the sudo password is only for a login that can.
+        field(creds, "Root pw (su -)", "become_password", 2, 0,
+              default="become_password", show="•", width=18)
+        field(creds, "sudo pw", "sudo_password", 2, 2,
+              default="sudo_password", show="•", width=18)
         self._build_per_host(inside, row=None)
 
         # --- 2. the inventory -------------------------------------------
@@ -846,7 +852,7 @@ class App:
         self.cred_rows_frame = ttk.Frame(box, style="Surface.TFrame")
         self.cred_rows_frame.pack(fill=tk.X, pady=(6, 0))
         self.cred_rows = []
-        for column, text in enumerate(("Host", "User", "Password", "Port")):
+        for column, text in enumerate(("Host", "User", "Password", "Root (su -)", "Port")):
             ttk.Label(self.cred_rows_frame, text=text, style="Muted.TLabel").grid(
                 row=0, column=column, sticky=tk.W, padx=(0, 8), pady=(0, 2))
 
@@ -871,7 +877,8 @@ class App:
         saved = per_host_from_config(self.cfg)
         for host in sorted(saved):
             self.add_cred_row(host, saved[host].user, saved[host].password,
-                              getattr(saved[host], "port", 22) or 22)
+                              getattr(saved[host], "port", 22) or 22,
+                              getattr(saved[host], "become_password", ""))
         if saved:
             self.remember_logins.set(True)
         else:
@@ -949,15 +956,20 @@ class App:
         return out
 
     def add_cred_row(self, host: str = "", user: str = "", password: str = "",
-                     port: str = "") -> None:
+                     port: str = "", become: str = "") -> None:
         held = {"host": tk.StringVar(value=host), "user": tk.StringVar(value=user),
                 "password": tk.StringVar(value=password),
+                "become": tk.StringVar(value=become),
                 "port": tk.StringVar(value=str(port or ""))}
         held["widgets"] = [
             ttk.Entry(self.cred_rows_frame, textvariable=held["host"], width=22),
             ttk.Entry(self.cred_rows_frame, textvariable=held["user"], width=16),
             ttk.Entry(self.cred_rows_frame, textvariable=held["password"], width=18,
                       show="\u2022"),
+            # The root password for `su -`, for a login (a BBU console
+            # account) that cannot sudo; blank for a host that needs none.
+            ttk.Entry(self.cred_rows_frame, textvariable=held["become"], width=16,
+                      show="•"),
             # Blank means "whatever SSH port is set above", so a table full of
             # ordinary hosts needs nothing typed in it.
             ttk.Entry(self.cred_rows_frame, textvariable=held["port"], width=6),
@@ -965,6 +977,7 @@ class App:
                        style="Small.TButton",
                        command=lambda: self.remove_cred_row(held))]
         self._secret(held["widgets"][2])
+        self._secret(held["widgets"][3])
         self.cred_rows.append(held)
         self._place_rows(self.cred_rows)
 
@@ -1017,14 +1030,16 @@ class App:
             host = held["host"].get().strip()
             user = held["user"].get().strip()
             password = held["password"].get()
+            become = held["become"].get() if "become" in held else ""
             try:
                 port = int((held["port"].get() or "").strip() or shared)
             except ValueError:
                 port = shared
-            if host and (user or password or port != 22):
+            if host and (user or password or become or port != 22):
                 if host in out:
                     twice.append(host)
-                out[host] = Creds(user=user, password=password, port=port)
+                out[host] = Creds(user=user, password=password, port=port,
+                                  become_password=become)
         for host in dict.fromkeys(twice):
             self.say("%s is in the per-host logins more than once - the "
                      "lowest row is the one being used" % host)
@@ -1528,7 +1543,9 @@ root:MyPassw0rd@198.51.100.21
         return Options(
             mode=get("mode") or "auto",
             ssh=Creds(user=get("user"), password=get("password"),
-                      key_file=get("key"), port=self.ssh_port()),
+                      key_file=get("key"), port=self.ssh_port(),
+                      sudo_password=get("sudo_password"),
+                      become_password=get("become_password")),
             bmc_user=get("bmc_user"), bmc_password=get("bmc_password"),
             enable_lldp=self.enable_lldp.get(),
             community=get("community") or "public", switches=switches,
