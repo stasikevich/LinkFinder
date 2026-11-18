@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 9 52 46" width="52" height="46" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<rect x="11" y="15.0" width="42" height="34" rx="3.5" fill="#ffffff" stroke="__ACCENT__" stroke-width="2.4"/>
+<polygon points="26,20 38,20 45,27 45,39 38,46 26,46 19,39 19,27" fill="#ffffff" stroke="__ACCENT__" stroke-width="1.8" stroke-opacity="0.8"/>
+<circle cx="32" cy="33.0" r="3.2" fill="__ACCENT__" fill-opacity="0.9"/>
+<circle cx="32" cy="24.0" r="2.1" fill="__ACCENT__" fill-opacity="0.5"/>
+<circle cx="40" cy="28.0" r="2.1" fill="__ACCENT__" fill-opacity="0.5"/>
+<circle cx="40" cy="38.0" r="2.1" fill="__ACCENT__" fill-opacity="0.5"/>
+<circle cx="32" cy="42.0" r="2.1" fill="__ACCENT__" fill-opacity="0.5"/>
+<circle cx="24" cy="38.0" r="2.1" fill="__ACCENT__" fill-opacity="0.5"/>
+<circle cx="24" cy="28.0" r="2.1" fill="__ACCENT__" fill-opacity="0.5"/>
+</svg>

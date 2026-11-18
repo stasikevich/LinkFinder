@@ -204,7 +204,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--targets-file", default="", help="file with one target per line")
     p.add_argument("-m", "--mode", default="auto",
                    choices=["auto", "ssh", "linux", "esxi", "windows", "windows-local", "bmc",
-                            "switch", "switch-cli", "pdu"],
+                            "switch", "switch-cli", "pdu", "rf-switch"],
                    help="force an access path instead of auto-detecting it")
     p.add_argument("-u", "--user", default="", help="SSH username")
     p.add_argument("-p", "--password", default="", help="SSH password (also used for sudo)")

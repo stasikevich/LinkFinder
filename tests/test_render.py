@@ -1289,6 +1289,19 @@ check("the panel driver is part of the tree",
           os.path.abspath(__file__))), "tools", "page_panel.py")), True)
 
 print()
+print("-- the NetBox panel offers the device's own page to copy --")
+from linkfinder.render_topology import _netbox_lines
+_nb = _netbox_lines({"name": "server-a", "role": "Server",
+                     "url": "https://netbox.example.net/dcim/devices/36470/"})
+check("the netbox device link is shown",
+      any(l.startswith("link") and "/dcim/devices/36470/" in l for l in _nb), True)
+_api = _netbox_lines({"name": "server-a",
+                      "url": "https://netbox.example.net/api/dcim/devices/36470/"})
+check("an api url is turned into the readable page",
+      any(l.startswith("link") and "/api/" not in l
+          and "/dcim/devices/36470/" in l for l in _api), True)
+
+print()
 if FAILURES:
     print("%d FAILURES" % len(FAILURES))
     for f in FAILURES:

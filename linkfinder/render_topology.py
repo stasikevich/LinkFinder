@@ -32,6 +32,7 @@ KIND_STYLE = {
     "serial": ["#8c8c8c", "round-tag"],
     "peripheral": ["#a0a0a0", "round-rectangle"],
     "pdu": ["#d62728", "round-rectangle"],
+    "rf-switch": ["#4062bb", "round-rectangle"],
     "vm": ["#2a9d8f", "barrel"],
     "unknown": ["#7f7f7f", "ellipse"],
 }
@@ -48,6 +49,7 @@ KIND_SIZE = {
     "serial": [40, 26],
     "peripheral": [40, 30],
     "pdu": [34, 48],
+    "rf-switch": [46, 40],
     "vm": [46, 42],
     "unknown": [44, 40],
 }
@@ -56,7 +58,7 @@ KIND_SIZE = {
 KIND_WORD = {"timing": "timing source", "bmc": "management controller",
              "ap": "wireless access point", "host": "server",
              "serial": "console cable", "peripheral": "usb device",
-             "pdu": "power / UPS", "vm": "virtual machine"}
+             "pdu": "power / UPS", "rf-switch": "RF switch", "vm": "virtual machine"}
 
 # The map marks a device by what it IS - a server, a switch, a phone, a UPS -
 # with a clear original glyph, and names the maker in plain text on the panel.
@@ -67,6 +69,7 @@ KIND_WORD = {"timing": "timing source", "bmc": "management controller",
 # glyph - a device shape, not a brand mark.
 VENDOR_GLYPH = {
     "american power conversion": "pdu", "apc": "pdu", "schneider": "pdu",
+    "mini-circuits": "rf-switch", "mini circuits": "rf-switch",
 }
 
 # Which kind's colour a device glyph borrows, so the tint stays consistent
@@ -1428,6 +1431,18 @@ def _bmc_lines(found: Dict[str, Any], inventory: Any) -> List[str]:
     return out
 
 
+def _rf_switch_lines(rf: Dict[str, Any]) -> List[str]:
+    """A Mini-Circuits RF switch: model, firmware and the live switched port."""
+    out = []
+    if rf.get("model"):
+        out.append("%-14s %s" % ("model", rf["model"]))
+    if rf.get("firmware"):
+        out.append("%-14s %s" % ("firmware", rf["firmware"]))
+    if str(rf.get("switch_port", "")) != "":
+        out.append("%-14s %s" % ("switch port", rf["switch_port"]))
+    return out
+
+
 def _netbox_lines(record: Dict[str, Any]) -> List[str]:
     """One line each, and only for what the record actually holds.
 
@@ -1440,6 +1455,12 @@ def _netbox_lines(record: Dict[str, Any]) -> List[str]:
         value = str(record.get(key) or "").strip()
         if value:
             out.append("%-14s %s" % (label, value))
+    # The device's own NetBox page, to copy or open. NetBox returns the web URL
+    # as display_url; if only the API url came back, drop the /api so the link
+    # opens the page a person reads, not the JSON.
+    link = str(record.get("url") or "").strip()
+    if link:
+        out.append("%-14s %s" % ("link", link.replace("/api/", "/", 1)))
     tags = [t for t in (record.get("tags") or []) if t]
     if tags:
         out.append("%-14s %s" % ("setups", ", ".join(sorted(tags))))
@@ -1618,6 +1639,11 @@ def device_facts(node: Dict[str, Any],
     if isinstance(guests, list) and guests:
         sections.append({"title": "KVM guests on this host",
                          "lines": _kvm_guest_lines(guests)})
+    rf = extra.get("rf_switch")
+    if isinstance(rf, dict) and rf:
+        rf_lines = _rf_switch_lines(rf)
+        if rf_lines:
+            sections.append({"title": "RF switch", "lines": rf_lines})
     opt = extra.get("optics")
     if isinstance(opt, dict) and opt:
         from .optics import problems as _optic_problems
@@ -1715,7 +1741,8 @@ def device_facts(node: Dict[str, Any],
         if key in ("ptp", "sensors", "optics", "bonds", "bond_detail",
                    "netns_hidden", "identified", "netns_vfs", "ports", "netns",
                    "ipmi", "perm_macs", "health", "usb", "storage", "port_health",
-                   "system_health", "kvm_guests"):
+                   "system_health", "kvm_guests",
+                   "rf_switch"):
             continue
         if isinstance(value, dict) and value:
             held.append("%s (%d)" % (SKIP_ON_PANEL.get(key, key), len(value)))

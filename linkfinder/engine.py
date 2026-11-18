@@ -471,6 +471,11 @@ def discover_one(target: str, opts: Options, log: Optional[Callable[[str], None]
                 banner_of(target, ssh_creds.port or 22)) else "ssh"
         elif port_open(target, opts.bmc_port):
             mode = "bmc"
+        elif port_open(target, 80):
+            # A Mini-Circuits RF switch has no shell and no Redfish; it answers a
+            # read-only HTTP API. One MN? query tells it from any other web box.
+            from . import minicircuits
+            mode = "rf-switch" if minicircuits.is_switch(target) else "switch"
         elif opts.switches or (opts.learn and store.candidates(opts.community)):
             mode = "switch"
         else:
@@ -552,6 +557,19 @@ def discover_one(target: str, opts: Options, log: Optional[Callable[[str], None]
                 result.device_chassis = str(found.get("mac") or "")
                 result.device_descr = "APC %s" % (found.get("model number") or "")
                 result.extra["pdu"] = found
+        elif mode == "rf-switch":
+            from . import minicircuits
+
+            found = minicircuits.probe(target, log=say)
+            if not found:
+                result.error = ("it answers HTTP on 80 but is not a "
+                                "Mini-Circuits switch")
+            else:
+                result.kind = "rf-switch"
+                result.device_name = str(found.get("model") or "")
+                result.device_serial = str(found.get("serial") or "")
+                result.device_descr = "Mini-Circuits %s" % (found.get("model") or "")
+                result.extra["rf_switch"] = found
         elif mode == "switch-cli":
             from .probe_switchcli import probe_switch_as_target
             creds = opts.switch_creds if opts.switch_creds.user else ssh_creds
