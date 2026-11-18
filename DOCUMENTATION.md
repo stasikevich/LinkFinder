@@ -313,7 +313,7 @@ saved once works in both front ends.
 |---|---|
 | `targets` | Positional. Addresses, comma or space separated. |
 | `--targets-file FILE` | One target per line; `#` comments allowed. A line may be a host, `root:secret@host`, or a whole network. A `[name]` line puts everything under it into that setup. `File` -> `Save an example host list...` writes one to start from. |
-| `-m, --mode` | `auto`, `ssh`, `linux`, `esxi`, `windows`, `windows-local`, `bmc`, `switch`, `switch-cli`, `pdu`. |
+| `-m, --mode` | `auto`, `ssh`, `linux`, `esxi`, `windows`, `windows-local`, `bmc`, `switch`, `switch-cli`, `pdu`, `rf-switch`. |
 | `-u, --user`, `-p, --password` | SSH credentials. The password is also used for `sudo`. |
 | `--sudo-password` | When sudo differs from the login password. |
 | `--become-password` | Root password for `su -`, for a login that cannot sudo (a console account that su's to root). Also settable as the `BECOME_PASSWORD` environment variable, or per host. |
@@ -1183,6 +1183,33 @@ it.
 
 ---
 
+## 6a5. Mini-Circuits RF switches
+
+`linkfinder/minicircuits.py`. A lab's RF path runs through programmable switches
+- a Mini-Circuits SP6T, or a bank of them - and which output each one is thrown
+to decides what is actually connected to what. They have no shell, so a plain SSH
+probe logs in nowhere and sees nothing. But the box answers a small read-only
+HTTP API, and that is enough to put it on the map.
+
+When a target offers no SSH and no Redfish but answers HTTP on port 80, a single
+`MN?` query decides it: a reply naming a Mini-Circuits model (`RC-1SP6T-A12`) is
+drawn as an **RF switch** - its own glyph - with the model, serial, firmware and
+the live switched port read from `SN?`, `FIRMWARE?` and `SWPORT?`. The serial is
+what matters downstream: it holds the switch against NetBox exactly like any
+server, so a switch catalogued there comes back matched, with its NetBox page to
+open. Force the path with `-m rf-switch` if auto-detection is not wanted.
+
+(Implementation note: the command IS the path, trailing `?` and all - `/MN?`.
+The usual HTTP client normalises that `?` into an empty query string and the box
+then answers "unknown command", so the path is sent verbatim.)
+
+Nothing here throws a switch. The `SET...` commands that would change the RF path
+are deliberately absent - a topology tool has no business moving the path under a
+running measurement. The read is split from the parse so a separate controller
+could reuse the fingerprint without this ever growing a write path.
+
+---
+
 ## 6b. Timing, and the cable nothing announces
 
 `linkfinder/ptp.py` and `linkfinder/ptp_snmp.py`. Runs by default on Linux
@@ -1628,6 +1655,9 @@ linkfinder --topology 198.51.100.1 -u root -p secret --netbox \
 The address and token come from `--netbox-url` / `--netbox-token`, else
 `LINKFINDER_NETBOX_URL` / `LINKFINDER_NETBOX_TOKEN`, else the defaults file.
 Nothing is hard-coded. The window has a **NetBox** tick that does the same.
+
+A matched device shows its own NetBox page in the panel as a `link` line -
+the `display_url` NetBox returns - to copy or open.
 
 **It reads. It does not write.** There is no code path in LinkFinder that
 POSTs, PATCHes or DELETEs anything in NetBox, and the tests check that. The
