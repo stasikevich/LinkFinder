@@ -356,7 +356,8 @@ class Topology:
                  kind: str = "", vendor: str = "", state: str = STATE_UNSCANNED,
                  source: str = "", depth: Optional[int] = None, error: str = "",
                  mgmt_ips: Optional[List[str]] = None, mac: str = "", serial: str = "",
-                 extra: Optional[Dict[str, Any]] = None) -> Node:
+                 extra: Optional[Dict[str, Any]] = None,
+                 fold_by_name: bool = True) -> Node:
         addresses = [ip for ip in ([mgmt_ip] if mgmt_ip else []) + list(mgmt_ips or []) if ip]
         chassis = normalise_chassis_id(chassis_id) or normalise_chassis_id(mac)
         key = node_key(chassis_id=chassis_id, mgmt_ip=addresses[0] if addresses else "",
@@ -376,7 +377,7 @@ class Topology:
                 target = self._promote(older, key, chassis, chassis_id)
         if target is None and not chassis:
             target = self._find_by_ip(addresses, "")
-        if target is None:
+        if target is None and fold_by_name:
             # A host and the same host as a neighbour named it by its hostname
             # are one device, so a Windows box is not both "10.0.0.5" and
             # "DESKTOP-..." on the map. Only ever folds a bare hostname-keyed

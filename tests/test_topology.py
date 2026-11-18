@@ -397,6 +397,27 @@ check("a vm with a routable IP survives",
 
 
 print()
+print("-- fold_by_name: two distinct devices that share a name stay apart --")
+t = Topology(seed="f")
+# Two console radios, each keyed by its own cable, that printed the same
+# (truncated) name. fold_by_name=False keeps them two nodes; the default True
+# would fold the second onto the first and a whole radio would vanish.
+a = t.add_node(chassis_id="console-cable:DK0CCYY8A", name="Integrity-ME-0-B1B3-00",
+               kind="radio", fold_by_name=False)
+b = t.add_node(chassis_id="console-cable:DK0CHTJNA", name="Integrity-ME-0-B1B3-00",
+               kind="radio", fold_by_name=False)
+check("distinct cables are two radios", len({a.id, b.id}), 2)
+check("both radios are present", len([n for n in t.nodes.values()
+                                      if n.kind == "radio"]), 2)
+# And the default still folds a bare hostname-keyed neighbour onto its node.
+t2 = Topology(seed="g")
+real = t2.add_node(mgmt_ip="10.0.0.5", name="DESKTOP-X", kind="host")
+nb = t2.add_node(chassis_id="DESKTOP-X", kind="host")   # a neighbour by hostname
+check("a hostname-only neighbour still folds onto the real host",
+      nb.id, real.id)
+
+
+print()
 if FAILURES:
     print("%d FAILURES" % len(FAILURES))
     for f in FAILURES:

@@ -2,8 +2,9 @@
 
 serialports.capture() records the name a COM/tty port's console printed. This
 turns that into a node: a radio named by what it said, cabled to the host on
-the port it answered on. A port that stayed silent draws nothing; two cables
-that report the same name are one radio with two consoles, not two radios.
+the port it answered on. A port that stayed silent draws nothing; two different
+cables (different adapter serials) are two radios even when the name matches;
+cables with no serial fall back to the name and fold.
 
 Run: python tests/test_seriallinks.py
 
@@ -78,7 +79,7 @@ check("the silent and the UART ports drew nothing", len(rs), 1)
 
 
 print()
-print("-- two cables, one name: a single radio with two consoles --")
+print("-- two cables, one name, NO adapter serial: fall back to name, fold --")
 serial2 = {
     "COM4": {"port": "COM4", "likely_radio": True, "answered": True,
              "radio_name": "Integrity-ME-0-B1B3B8B28n41-02-1"},
@@ -92,6 +93,37 @@ check("but they go to one radio, not two", len(radios(topo)), 1)
 coms = sorted((e.a_iface if e.a == host.id else e.b_iface)
               for e in edges_from(topo, host.id))
 check("each cable keeps its own COM port", coms, ["COM4", "COM6"])
+
+
+print()
+print("-- two cables, same (truncated) name, DIFFERENT serials: two radios --")
+# The bench case: one host, two FTDI adapters, each to a different radio, but
+# both printed the same default/truncated hostname. Keyed by name they folded
+# into one node and a whole radio vanished. Keyed by the adapter serial they
+# stay apart. A duplicate would beat hiding one; here they are genuinely two.
+serial3 = {
+    "COM4": {"port": "COM4", "likely_radio": True, "answered": True,
+             "serial": "DK0CCYY8A", "radio_name": "Integrity-ME-0-B1B3-00"},
+    "COM6": {"port": "COM6", "likely_radio": True, "answered": True,
+             "serial": "DK0CHTJNA", "radio_name": "Integrity-ME-0-B1B3-00"},
+}
+topo, host = host_with(serial3)
+added = seriallinks.connect(topo)
+check("two cables were drawn", added, 2)
+check("two different adapters are two radios, not one", len(radios(topo)), 2)
+cables = sorted(r.extra.get("console_cable_serial") for r in radios(topo))
+check("each radio kept its own adapter serial", cables,
+      ["DK0CCYY8A", "DK0CHTJNA"])
+check("the adapter serial is never shown as the device serial",
+      sorted(r.serial for r in radios(topo)), ["", ""])
+
+# The synthetic chassis key must not surface in the panel as a chassis id.
+from linkfinder import render_topology as rt
+lines = []
+for r in radios(topo):
+    lines += rt._identity_lines(r.to_dict())
+check("the console-cable key never leaks into the panel as a chassis",
+      any("console-cable:" in ln for ln in lines), False)
 
 
 print()

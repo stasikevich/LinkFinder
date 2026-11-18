@@ -59,6 +59,10 @@ def classify_kind(result_kind: str = "", capabilities: str = "", sys_desc: str =
         return KIND_BMC
     if kind.startswith("switch"):
         return KIND_SWITCH
+    if kind == "rf-switch":
+        # a probe that read a Mini-Circuits switch said so outright - that is
+        # the device, not a thing it happens to be doing, so believe it.
+        return "rf-switch"
     if kind in ("linux", "suse", "esxi", "windows", "darwin"):
         return KIND_HOST
 

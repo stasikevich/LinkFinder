@@ -70,6 +70,9 @@ check("a bridge with nothing said is still a switch",
 # they stay above the description.
 check("wireless beats the description", classify_kind("", "wlan", UBUNTU), "ap")
 check("so does telephone", classify_kind("", "telephone", UBUNTU), "phone")
+# a probe that read a Mini-Circuits switch outright is believed over the guess
+check("a probed rf-switch is kept, not guessed to unknown",
+      classify_kind("rf-switch", "", "Mini-Circuits"), "rf-switch")
 
 print()
 print("-- a port that reported two neighbours keeps the switch --")

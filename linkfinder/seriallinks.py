@@ -8,9 +8,12 @@ this draws it: a radio node named by what it said, cabled to the host on the
 COM/tty port it answered on, with the port as the label on the host side.
 
 Unlike a fronthaul radio - keyed by the MAC it answers on over NETCONF - a
-console radio has only the name it told us, so that name is its identity. Two
-cables that report the same name are one radio with two consoles, not two
-radios, so they fold onto a single node with a cable each.
+console radio has no MAC, so the USB adapter's own serial is its identity:
+each cable is its own radio. Two different cables that print the same name are
+two radios, not one - a default or truncated hostname collides on a bench, and
+hiding one of two radios is worse than drawing a duplicate. Only when the
+adapter reports no serial do we fall back to the name, and two such consoles
+of one radio then fold - the best that can be done blind.
 
 Idea, design and architecture by Stas Mitin.
 Copyright (c) 2026 Stas Mitin. SPDX-License-Identifier: MIT
@@ -36,13 +39,18 @@ def connect(topology, log: Optional[Callable[[str], None]] = None) -> int:
             if not name:
                 continue
             com = str(rec.get("port") or "").strip()
-            radio = topology.add_node(name=name, vendor=name, kind="radio",
-                                      state="unscanned", source="serial-console")
-            # The USB cable's own serial, so the node carries the same hardware
-            # serial the host's Serial ports panel shows for that port. It is
-            # the adapter's serial, not the radio's, so it stays in extra and
-            # never becomes node.serial - a serial merge must not fire on it.
             cable = str(rec.get("serial") or "").strip()
+            # The adapter's own serial is the radio's identity, not the name it
+            # printed: two different cables are two different radios even when
+            # that name is the same. The serial keys the node as a synthetic
+            # chassis so two adapters never fold; with no serial we fall back to
+            # the name. It is the adapter's serial, not the radio's, so it also
+            # stays in extra and never becomes node.serial - a serial merge must
+            # not fire on it, and the panel hides this synthetic chassis.
+            chassis = ("console-cable:" + cable) if cable else ""
+            radio = topology.add_node(chassis_id=chassis, name=name, vendor=name,
+                                      kind="radio", state="unscanned",
+                                      source="serial-console", fold_by_name=False)
             if cable:
                 radio.extra.setdefault("console_cable_serial", cable)
             radio.extra.setdefault("reached_over", "serial console")

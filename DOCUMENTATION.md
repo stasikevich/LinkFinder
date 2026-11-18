@@ -523,7 +523,7 @@ machine itself - and flags the USB-serial adapters apart from the motherboard's 
 UARTs and any Bluetooth COM port, where a radio never is. Nothing is opened or
 written: reading a byte off the line would interrupt whatever is already talking to
 the radio, so the identity alone names the port. It shows up under **Serial ports**
-on the device panel, radio cable first. (`linkfinder/serialports.py`.)
+on the device panel, radio cable first. (`linkfinder/serialports.py`.) When a likely console actually answers, that radio is drawn as its own node, cabled to the host on the port it replied on. Its identity is the USB adapter's own serial, not the name it printed: two different adapters are two radios even when both report the same default or truncated name, and only a cable with no adapter serial falls back to folding by name. (`linkfinder/seriallinks.py`.)
 
 A fronthaul radio reached inside a pod's network namespace is found by probing -
 it answers SSH and NETCONF on its link-local address - which says a radio is

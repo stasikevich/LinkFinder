@@ -755,6 +755,11 @@ def _identity_lines(node: Dict[str, Any]) -> List[str]:
     for label, key in (("chassis", "chassis_id"), ("serial", "serial"),
                        ("model", "vendor")):
         value = str(node.get(key) or "").strip()
+        # A console radio is keyed by its USB adapter's serial as a synthetic
+        # chassis so two cables never fold; that is a node key, not the radio's
+        # own chassis id, so it is not shown as one.
+        if value and value.startswith("console-cable:"):
+            continue
         if value:
             out.append("%-14s %s" % (label, value))
     for line in ((node.get("extra") or {}).get("identified") or {}
