@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from linkfinder import render_topology as rt
 from linkfinder import neighbors
-from linkfinder.oui import MAKER_KIND, kind_from_maker
+from linkfinder.oui import MAKER_KIND
 
 FAILURES = []
 
