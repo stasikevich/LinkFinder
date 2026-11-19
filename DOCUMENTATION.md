@@ -197,9 +197,10 @@ an earlier run cannot be mistaken for the current one.
 
 **Scan** asks the address(es) in Target and nothing else. **Map Network** walks
 outward from them, draws the map, writes the table, the data and the page side by
-side, and offers to open it. **Open Map** opens the one already drawn without
-walking anything again, and **Stop** finishes the devices already being asked and
-then stops.
+side, and offers to open it. **Open Map** shows the map already drawn without
+walking anything again; with one already open, pressing it again lets you choose
+a different saved map to show. **Stop** finishes the devices already being asked
+and then stops.
 
 They were briefly one button with a *how far* choice beside it - These / +
 Connected / Whole site. It read as though the map were a setting on a scan, when

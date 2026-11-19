@@ -260,6 +260,16 @@ def edge_key(a: str, a_iface: str, b: str, b_iface: str) -> str:
     return "%s|%s::%s|%s" % (ends[0][0], ends[0][1], ends[1][0], ends[1][1])
 
 
+def _is_loopback(a_iface: str, b_iface: str) -> bool:
+    """A node edged to itself is a real cable - a loopback - only when it names
+    two different real ports (eth1 to eth2). One end unknown ("?" or empty), or
+    the same port both ends, is an artifact of a merge, not a loop in the wiring.
+    """
+    def real(x: str) -> bool:
+        return bool(x) and x != "?"
+    return real(a_iface) and real(b_iface) and a_iface != b_iface
+
+
 def _locally_administered(mac: str) -> bool:
     """A MAC whose second-least-significant bit of the first octet is set was
     assigned locally - a VIP, a bridge or a tap, not a vendor's burned-in id."""
@@ -470,6 +480,14 @@ class Topology:
                  speed: str = "",
                  attrs: Optional[Dict[str, Dict[str, Any]]] = None) -> Edge:
         a, b = self.resolve(a), self.resolve(b)
+        if a and a == b and not _is_loopback(a_iface, b_iface):
+            # A node is never cabled to itself. It happens when a bare-MAC
+            # neighbour drawn as its own node is the host that owns the MAC, or
+            # a device lists its own address as a neighbour. Return a detached
+            # edge so a caller that annotates the result still works; it is
+            # simply never stored, so it is never drawn.
+            return Edge(id="", a=a, a_iface=a_iface, b=b, b_iface=b_iface,
+                        first_seen=now_stamp())
         key = edge_key(a, a_iface, b, b_iface)
         stamp = now_stamp()
         edge = self.edges.get(key)
@@ -642,6 +660,11 @@ class Topology:
         rebuilt: Dict[str, Edge] = {}
         for edge in self.edges.values():
             a, b = self.resolve(edge.a), self.resolve(edge.b)
+            if a and a == b and not _is_loopback(edge.a_iface, edge.b_iface):
+                # Both ends folded onto one node with no two distinct ports: a
+                # self-loop born of a merge, an artifact. A real loopback (two
+                # named ports) is kept.
+                continue
             key = edge_key(a, edge.a_iface, b, edge.b_iface)
             ends = sorted([(a, edge.a_iface), (b, edge.b_iface)])
             edge.id, edge.a, edge.a_iface, edge.b, edge.b_iface = (

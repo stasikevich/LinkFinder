@@ -155,6 +155,26 @@ else:
     check("every button pressed without raising", len(FAILURES), 0)
     check("and there were buttons to press", pressed >= 8, True)
 
+    print("-- and pressed a second time: a repeat press must not raise --")
+    for name in handlers:
+        if name in SKIP:
+            continue
+        action = getattr(app, name, None)
+        if not isinstance(action, types.MethodType):
+            continue
+        try:
+            action()
+            root.update()
+            for child in list(root.winfo_children()):
+                if isinstance(child, tk.Toplevel):
+                    child.destroy()
+            root.update()
+        except Exception as problem:
+            FAILURES.append("%s raised on the second press %s: %s"
+                            % (name, type(problem).__name__, problem))
+            print("%-62s %s" % (name, "FAIL (2nd press)"))
+    check("every button survives a second press", len(FAILURES), 0)
+
     print()
     print("-- the map follows the map, not the first one it ever saw --")
     from linkfinder.topology import Topology, load_topology
@@ -176,6 +196,20 @@ else:
           "a different host" in app.map_server.pages.html(), True)
     check("and the first one is gone from it",
           "a different host" in first, False)
+
+    print()
+    print("-- Open Map pressed again opens a different map, not the first --")
+    third = dict(A_MAP)
+    third["nodes"] = [dict(A_MAP["nodes"][0], name="a third host")]
+    third_path = os.path.join(WORK, "third.json")
+    io.open(third_path, "w", encoding="utf-8").write(json.dumps(third))
+    filedialog.askopenfilename = lambda *_a, **_k: third_path
+    check("a map is already on screen before the second press",
+          app.map_server is not None, True)
+    app.open_map_button()
+    root.update()
+    check("pressing Open Map again swaps to the chosen map",
+          "a third host" in app.map_server.pages.html(), True)
     # Always, even if a check above failed: a live socket and a live window
     # both outlive the test otherwise.
     try:

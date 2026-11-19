@@ -418,6 +418,30 @@ check("a hostname-only neighbour still folds onto the real host",
 
 
 print()
+print("-- a node is never cabled to itself (self-loop dropped) --")
+# add_edge: an ARTIFACT self-loop (one end unknown) is refused...
+t = Topology(seed="s")
+h = t.add_node(mgmt_ip="10.0.0.2", name="desk")
+e = t.add_edge(a=h.id, a_iface="eth0", b=h.id, b_iface="")
+check("add_edge drops an artifact self-loop (one end unknown)", len(t.edges), 0)
+check("but returns an edge object so callers that annotate it still work",
+      hasattr(e, "note"), True)
+# ...while a REAL loopback - two different named ports - is kept.
+t.add_edge(a=h.id, a_iface="eth1", b=h.id, b_iface="eth2")
+check("a real loopback (two named ports) is kept", len(t.edges), 1)
+
+# _repoint_edges: the real bug - a bare-MAC neighbour drawn as its own node,
+# edged to the host, then merged into the host that owns the MAC.
+t2 = Topology(seed="s")
+desk = t2.add_node(mgmt_ip="10.0.0.1", name="DESKTOP")
+nb = t2.add_node(chassis_id="00:e0:4c:68:00:05", kind="unknown")  # a bare-MAC node
+t2.add_edge(a=desk.id, a_iface="eth0", b=nb.id, b_iface="")
+check("one edge before the merge", len(t2.edges), 1)
+t2._alias[nb.id] = desk.id            # the neighbour turns out to be the desk
+t2._repoint_edges()
+check("the self-loop a merge created is dropped", len(t2.edges), 0)
+
+print()
 if FAILURES:
     print("%d FAILURES" % len(FAILURES))
     for f in FAILURES:

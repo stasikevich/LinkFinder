@@ -1358,10 +1358,11 @@ root:MyPassw0rd@198.51.100.21
                             "Finish the devices already being asked, then stop.")
         self.btn_stop.pack(side=tk.LEFT, padx=(12, 0))
 
-        tip(ttk.Button(doing, text="Open Map", command=self.open_live_map),
-            "Open the map already drawn, without walking anything again. "
-            "Setups, what NetBox does not know and what moved since last "
-            "time are all done there, on the picture.").pack(side=tk.RIGHT)
+        tip(ttk.Button(doing, text="Open Map", command=self.open_map_button),
+            "Show the map in the browser. With one already open, pressing it "
+            "again lets you choose a different saved map; cancel keeps the "
+            "current one. Setups, what NetBox does not know and what moved "
+            "since last time are all done there, on the picture.").pack(side=tk.RIGHT)
         tip(ttk.Button(doing, text="SSH", command=self.open_ssh),
             "Open a shell on the selected device, using the login already "
             "entered. The tool still only reads - what you type in that "
@@ -2745,6 +2746,25 @@ root:MyPassw0rd@198.51.100.21
             return False
         self.say("opened %s" % where)
         return True
+
+    def open_map_button(self) -> None:
+        """The toolbar's Open Map: show a map, and let you pick a different one.
+
+        With nothing on screen yet it serves the last map, offering a saved
+        one to open if none is drawn (open_live_map does that). With a map
+        already served, pressing it again means "open another" - so it offers
+        the chooser and swaps to what you pick; cancelling leaves the current
+        one. The scan path keeps calling open_live_map directly, so a fresh
+        scan is never interrupted by a file dialog.
+        """
+        if getattr(self, "map_server", None) is None:
+            self.open_live_map()
+            return
+        import webbrowser
+
+        if self._open_a_saved_map():
+            webbrowser.open(self.map_server.url)
+            self.say("the map now shows the file you opened - reload the tab")
 
     def open_live_map(self) -> None:
         """Serve the last map to the browser, with this window answering it.

@@ -44,6 +44,26 @@ def _run_local(cmd: str, timeout: int) -> Tuple[int, str]:
     return run_quiet(cmd, timeout=timeout, shell=True)
 
 
+def _drop_self_echo(result, say) -> None:
+    """pktmon listens to every adapter at once, so it also hears this host's
+    own LLDP frame on the wire and takes it for a neighbour - a device cabled
+    to itself. Drop a neighbour whose chassis id is a MAC this host owns: that
+    is an echo, not a link. (The Linux probe does the same for a bridge echo.)
+    """
+    from .ptp import normalise_mac as _nmac
+    own = {_nmac(m) for m in (result.extra.get("macs") or {}).values() if m}
+    own.discard("")
+    if not own:
+        return
+    kept = [nb for nb in result.neighbors
+            if _nmac(getattr(nb, "chassis_id", "") or "") not in own]
+    dropped = len(result.neighbors) - len(kept)
+    if dropped:
+        say("  dropped %d self-echo neighbour(s) - this host hearing its own "
+            "LLDP frame" % dropped)
+    result.neighbors = kept
+
+
 def probe_windows_local(result: TargetResult, seconds: int = 65,
                         log: Optional[Callable[[str], None]] = None,
                         read_serial: bool = False,
@@ -115,6 +135,7 @@ def probe_windows_local(result: TargetResult, seconds: int = 65,
                 nb.note = "pktmon captures all adapters at once; match by switch port description"
                 result.add(nb)
                 found += 1
+    _drop_self_echo(result, say)
     result.attempts.append(ProbeAttempt("pktmon", bool(found), "%d neighbour(s)" % found,
                                         round(time.time() - started, 1)))
     if not found and not result.error:
@@ -235,6 +256,7 @@ def probe_windows_over_ssh(ssh: Ssh, result: TargetResult, seconds: int = 65,
             result.add(nb)
             found += 1
     ssh.run('cmd /c del /q "%s" "%s"' % (etl, pcapng), timeout=30)
+    _drop_self_echo(result, say)
     result.attempts.append(ProbeAttempt("pktmon-ssh", bool(found), "%d neighbour(s)" % found,
                                         round(time.time() - started, 1)))
     if not found and not result.error:

@@ -78,7 +78,7 @@ CAPABILITIES = [
      'text="Forget logins"', ""),
     ("watch a map for changes", "--watch", "", ""),
     ("serve the live map to a browser", "--serve-map",
-     "command=self.open_live_map", ""),
+     "command=self.open_map_button", ""),
     ("open the full guide", "--help-page", "command=self.open_help", ""),
     ("share what it remembers with the team", "--shared",
      "shared.say_where()", ""),
