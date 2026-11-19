@@ -34,29 +34,29 @@ def chassis_set(result):
 
 def test_self_echo_is_dropped_real_switch_kept():
     r = TargetResult(target="198.51.100.9", kind="windows")
-    r.extra["macs"] = {"Ethernet 4": "00:e0:4c:68:00:05"}      # this host's NIC
-    r.add(Neighbor(chassis_id="00:e0:4c:68:00:05", local_iface="x"))  # the echo
-    r.add(Neighbor(chassis_id="ec:50:aa:1f:a7:40", switch="sw", port="1/1/34"))
+    r.extra["macs"] = {"Ethernet 4": "02:00:00:00:00:05"}      # this host's NIC
+    r.add(Neighbor(chassis_id="02:00:00:00:00:05", local_iface="x"))  # the echo
+    r.add(Neighbor(chassis_id="02:00:00:00:00:34", switch="sw", port="1/1/34"))
     _drop_self_echo(r, lambda _m: None)
     check("the host's own MAC as a neighbour is dropped",
-          "00:e0:4c:68:00:05" in chassis_set(r), False)
+          "02:00:00:00:00:05" in chassis_set(r), False)
     check("the real switch neighbour is kept",
-          "ec:50:aa:1f:a7:40" in chassis_set(r), True)
+          "02:00:00:00:00:34" in chassis_set(r), True)
 
 
 def test_mac_format_does_not_matter():
     # own MAC written with dashes, the echo's chassis with colons - normalise
     # folds them, so the echo is still caught.
     r = TargetResult(target="198.51.100.9", kind="windows")
-    r.extra["macs"] = {"eth": "00-E0-4C-68-00-05"}
-    r.add(Neighbor(chassis_id="00:e0:4c:68:00:05"))
+    r.extra["macs"] = {"eth": "02-00-00-00-00-05"}
+    r.add(Neighbor(chassis_id="02:00:00:00:00:05"))
     _drop_self_echo(r, lambda _m: None)
     check("different spellings of the same MAC still match", len(r.neighbors), 0)
 
 
 def test_nothing_owned_drops_nothing():
     r = TargetResult(target="198.51.100.9", kind="windows")
-    r.add(Neighbor(chassis_id="ec:50:aa:1f:a7:40", switch="sw"))
+    r.add(Neighbor(chassis_id="02:00:00:00:00:34", switch="sw"))
     _drop_self_echo(r, lambda _m: None)
     check("with no own MACs known, nothing is dropped", len(r.neighbors), 1)
 
